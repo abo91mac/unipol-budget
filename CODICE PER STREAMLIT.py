@@ -103,12 +103,4 @@ st.dataframe(
         "Target (€)": "{:.2f}",
         "Reale (€)": "{:.2f}",
         "Delta (€)": "{:.2f}",
-        "Spesa Meccanica (€)": "{:.2f}",
-        "Spesa Carrozzeria (€)": "{:.2f}"
-    }), 
-    use_container_width=True
-)
-
-# Grafico
-st.write("### 📈 Trend Budget vs Real")
-st.line_chart(df_rep.set_index("Mese")[["Target (€)", "Re
+        "Spesa Meccanica (€)
