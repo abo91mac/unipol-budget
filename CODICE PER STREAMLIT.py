@@ -23,8 +23,8 @@ def process_upload():
                 m = row.get('Mese')
                 if m in nuovi_dati:
                     nuovi_dati[m] = {
-                        'mecc': float(row.get('Spesa Meccanica (€)', 0.0)),
-                        'carr': float(row.get('Spesa Carrozzeria (€)', 0.0)),
+                        'mecc': round(float(row.get('Spesa Meccanica (€)', 0.0)), 2),
+                        'carr': round(float(row.get('Spesa Carrozzeria (€)', 0.0)), 2),
                         'note': str(row.get('Note/Causali', '')) if pd.notna(row.get('Note/Causali')) else ''
                     }
             st.session_state['dati_mensili'] = nuovi_dati
@@ -35,7 +35,7 @@ def process_upload():
 
 # --- 2. SIDEBAR ---
 st.sidebar.title("⚙️ HUB Control Panel")
-budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=300000)
+budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=300000.0, step=1000.0)
 fondo = st.sidebar.slider("Fondo Riserva (€)", 0, 50000, 5000)
 p_mecc = st.sidebar.slider("% Target Meccanica", 0, 100, 60)
 
@@ -58,48 +58,57 @@ with st.expander("Apri Gestione Mensile", expanded=True):
             st.markdown(f"**{m}**")
             d = st.session_state['dati_mensili'][m]
             ver = st.session_state.file_version
-            s_m = st.number_input(f"Mecc (€)", value=d['mecc'], key=f"m_{m}_{ver}")
-            s_c = st.number_input(f"Carr (€)", value=d['carr'], key=f"c_{m}_{ver}")
+            s_m = st.number_input(f"Mecc (€)", value=d['mecc'], key=f"m_{m}_{ver}", format="%.2f")
+            s_c = st.number_input(f"Carr (€)", value=d['carr'], key=f"c_{m}_{ver}", format="%.2f")
             txt = st.text_input(f"Note {m}", value=d['note'], key=f"n_{m}_{ver}")
-            st.session_state['dati_mensili'][m] = {'mecc': s_m, 'carr': s_c, 'note': txt}
+            st.session_state['dati_mensili'][m] = {'mecc': round(s_m, 2), 'carr': round(s_c, 2), 'note': txt}
 
 # --- 6. LOGICA E CALCOLI ---
 pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
 quota_base = (budget_annuo - fondo) / sum(pesi.values())
 report = []
 for m in mesi:
-    target = quota_base * pesi[m]
+    target = round(quota_base * pesi[m], 2)
     d = st.session_state['dati_mensili'][m]
-    tot = d['mecc'] + d['carr']
-    diff = target - tot
+    tot = round(d['mecc'] + d['carr'], 2)
+    diff = round(target - tot, 2)
     report.append({
-        "Mese": m, "Target (€)": round(target, 2), "Reale (€)": tot,
-        "Delta (€)": round(diff, 2), "Status": "🔴 SFORO" if (tot > target and tot > 0) else ("🟢 OK" if tot > 0 else "⚪ ATTESA"),
-        "Spesa Meccanica (€)": d['mecc'], "Spesa Carrozzeria (€)": d['carr'], "Note/Causali": d['note']
+        "Mese": m, 
+        "Target (€)": target, 
+        "Reale (€)": tot,
+        "Delta (€)": diff, 
+        "Status": "🔴 SFORO" if (tot > target and tot > 0) else ("🟢 OK" if tot > 0 else "⚪ ATTESA"),
+        "Spesa Meccanica (€)": d['mecc'], 
+        "Spesa Carrozzeria (€)": d['carr'], 
+        "Note/Causali": d['note']
     })
 df_rep = pd.DataFrame(report)
 
 # --- 7. DASHBOARD ---
 st.divider()
-speso_tot = df_rep["Reale (€)"].sum()
-rimanente = budget_annuo - speso_tot
+speso_tot = round(df_rep["Reale (€)"].sum(), 2)
+rimanente = round(budget_annuo - speso_tot, 2)
 c1, c2, c3 = st.columns(3)
-c1.metric("Budget Utilizzato", f"{round(speso_tot, 2)} €", f"{round((speso_tot/budget_annuo)*100, 1)}%")
-c2.metric("Disponibilità Residua", f"{round(rimanente, 2)} €")
+c1.metric("Budget Utilizzato", f"{speso_tot} €", f"{round((speso_tot/budget_annuo)*100, 1)}%")
+c2.metric("Disponibilità Residua", f"{rimanente} €")
 c3.metric("Fondo Riserva", f"{fondo} €")
 
 def color_status(val):
     color = 'red' if 'SFORO' in str(val) else ('green' if 'OK' in str(val) else 'gray')
     return f'color: {color}; font-weight: bold'
 
-st.dataframe(df_rep.style.applymap(color_status, subset=['Status']), use_container_width=True)
+# Formattazione della tabella per mostrare sempre 2 decimali
+st.dataframe(
+    df_rep.style.applymap(color_status, subset=['Status']).format({
+        "Target (€)": "{:.2f}",
+        "Reale (€)": "{:.2f}",
+        "Delta (€)": "{:.2f}",
+        "Spesa Meccanica (€)": "{:.2f}",
+        "Spesa Carrozzeria (€)": "{:.2f}"
+    }), 
+    use_container_width=True
+)
 
 # Grafico
 st.write("### 📈 Trend Budget vs Real")
-st.line_chart(df_rep.set_index("Mese")[["Target (€)", "Reale (€)"]])
-
-# --- 8. DOWNLOAD ---
-output = io.BytesIO()
-with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-    df_rep.to_excel(writer, index=False, sheet_name='Budget_HUB_Report')
-st.download_button("📥 Scarica Report HUB", output.getvalue(), "Unipolservice_Budget_HUB.xlsx")
+st.line_chart(df_rep.set_index("Mese")[["Target (€)", "Re
