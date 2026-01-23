@@ -2,131 +2,141 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
+st.set_page_config(page_title="Unipolservice Budget HUB 2.0", layout="wide")
 
-# --- 1. MEMORIA DI SESSIONE ---
+# --- 1. CONFIGURAZIONE STRUTTURA ---
 mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
         "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
 
-if 'dati_mensili' not in st.session_state:
-    st.session_state['dati_mensili'] = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
-if 'file_version' not in st.session_state:
-    st.session_state['file_version'] = 0
+partner = ["KONECTA", "COVISIAN"]
 
-# --- FUNZIONE RESET ---
-def reset_dati():
-    st.session_state['dati_mensili'] = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
-    st.session_state['file_version'] += 1
-    st.session_state['confirm_reset'] = False # Chiude il menu di conferma
-    st.toast("⚠️ Tutti i dati sono stati azzerati!")
+voci_carr = [
+    "Gestione Contatti", 
+    "Ricontatto", 
+    "Documenti da Carrozzeria", 
+    "Recupero Firme Digitali", 
+    "Solleciti Outbound (TODO)"
+]
 
-def process_upload():
-    if st.session_state.uploader is not None:
-        try:
-            df_load = pd.read_excel(st.session_state.uploader)
-            nuovi_dati = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
-            for _, row in df_load.iterrows():
-                m = row.get('Mese')
-                if m in nuovi_dati:
-                    nuovi_dati[m] = {
-                        'mecc': round(float(row.get('Meccanica', row.get('Spesa Meccanica (€)', 0.0))), 2),
-                        'carr': round(float(row.get('Carrozzeria', row.get('Spesa Carrozzeria (€)', 0.0))), 2),
-                        'note': str(row.get('Note', row.get('Note/Causali', ''))) if pd.notna(row.get('Note')) else ''
-                    }
-            st.session_state['dati_mensili'] = nuovi_dati
-            st.session_state['file_version'] += 1
-            st.toast("✅ Budget HUB Aggiornato!")
-        except Exception as e:
-            st.error(f"Errore: {e}")
+voci_mecc = [
+    "Solleciti Outbound Officine (TODO)", 
+    "Gestione Ticket Assistenza"
+]
 
-# --- 2. SIDEBAR ---
+# --- 2. MEMORIA DI SESSIONE ---
+# Struttura: session_state[settore][mese][voce][partner]
+if 'db' not in st.session_state:
+    st.session_state['db'] = {
+        "Carrozzeria": {m: {v: {p: 0.0 for p in partner} for v in voci_carr} for m in mesi},
+        "Meccanica": {m: {v: {p: 0.0 for p in partner} for v in voci_mecc} for m in mesi}
+    }
+    st.session_state['note'] = {
+        "Carrozzeria": {m: "" for m in mesi},
+        "Meccanica": {m: "" for m in mesi}
+    }
+if 'v' not in st.session_state: st.session_state['v'] = 0
+
+# --- 3. SIDEBAR ---
 st.sidebar.title("⚙️ HUB Control Panel")
-budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=300000.0, step=1000.0)
-fondo = st.sidebar.slider("Fondo Riserva (€)", 0, 50000, 5000)
-p_mecc = st.sidebar.slider("% Target Meccanica", 0, 100, 60)
 
-with st.sidebar.expander("📅 Regolazione Stagionalità (%)", expanded=False):
-    # Modificato: ora il default è 0 per tutti i mesi
+st.sidebar.subheader("💰 Budget Annuali Separati")
+b_carr = st.sidebar.number_input("Budget Annuale Carrozzeria (€)", value=200000.0, step=1000.0)
+b_mecc = st.sidebar.number_input("Budget Annuale Meccanica (€)", value=100000.0, step=1000.0)
+
+st.sidebar.divider()
+with st.sidebar.expander("📅 Stagionalità (%)"):
+    st.info("Applica lo stesso peso a entrambi i settori")
     var_pct = {m: st.slider(f"{m}", -50, 100, 0) for m in mesi}
 
-# --- TASTO RESET CON CONFERMA ---
-st.sidebar.divider()
-if 'confirm_reset' not in st.session_state:
-    st.session_state['confirm_reset'] = False
+if st.sidebar.button("🗑️ RESET TUTTI I DATI"):
+    st.session_state['db'] = {
+        "Carrozzeria": {m: {v: {p: 0.0 for p in partner} for v in voci_carr} for m in mesi},
+        "Meccanica": {m: {v: {p: 0.0 for p in partner} for v in voci_mecc} for m in mesi}
+    }
+    st.session_state['v'] += 1
+    st.rerun()
 
-if not st.session_state['confirm_reset']:
-    if st.sidebar.button("🗑️ RESET TOTALE DATI"):
-        st.session_state['confirm_reset'] = True
-        st.rerun()
-else:
-    st.sidebar.warning("Sei sicuro?")
-    col_res1, col_res2 = st.sidebar.columns(2)
-    if col_res1.button("SÌ ✅", use_container_width=True):
-        reset_dati()
-        st.rerun()
-    if col_res2.button("NO ❌", use_container_width=True):
-        st.session_state['confirm_reset'] = False
-        st.rerun()
+# --- 4. FUNZIONE LOGICA CORE ---
+def render_settore(nome_settore, budget_annuo, voci):
+    st.header(f"📊 Dashboard {nome_settore}")
+    
+    # Calcolo Target Mensili
+    pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
+    q_base = budget_annuo / sum(pesi.values())
+    
+    # Inserimento Dati
+    with st.expander(f"📝 Inserimento Spese {nome_settore}", expanded=False):
+        tab_mesi = st.tabs(mesi)
+        for i, m in enumerate(mesi):
+            with tab_mesi[i]:
+                st.session_state['note'][nome_settore][m] = st.text_input(f"Note {m}", value=st.session_state['note'][nome_settore][m], key=f"note_{nome_settore}_{m}")
+                cols = st.columns(len(voci))
+                for idx, v in enumerate(voci):
+                    with cols[idx]:
+                        st.markdown(f"**{v}**")
+                        for p in partner:
+                            val = st.number_input(f"{p} (€)", 
+                                                 value=st.session_state['db'][nome_settore][m][v][p],
+                                                 key=f"in_{nome_settore}_{m}_{v}_{p}_{st.session_state['v']}",
+                                                 format="%.2f")
+                            st.session_state['db'][nome_settore][m][v][p] = val
 
-# --- 3. TITOLO ---
-st.title("🛡️ Unipolservice Budget HUB")
+    # Elaborazione Report
+    report_data = []
+    for m in mesi:
+        target = round(q_base * pesi[m], 2)
+        reale_m = sum(st.session_state['db'][nome_settore][m][v][p] for v in voci for p in partner)
+        diff = round(target - reale_m, 2)
+        
+        row = {"Mese": m, "Target": target, "Reale Totale": reale_m, "Delta": diff}
+        # Dettaglio per Partner
+        for p in partner:
+            row[p] = sum(st.session_state['db'][nome_settore][m][v][p] for v in voci)
+        
+        report_data.append(row)
+    
+    df = pd.DataFrame(report_data)
+    
+    # Metriche
+    tot_speso = df["Reale Totale"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric(f"Speso {nome_settore}", f"{round(tot_speso, 2)} €", f"{round((tot_speso/budget_annuo)*100, 1)}%")
+    c2.metric("Residuo", f"{round(budget_annuo - tot_speso, 2)} €")
+    c3.metric("Media Mese", f"{round(tot_speso/12, 2)} €")
+
+    # Tabella
+    st.dataframe(df.style.format({c: "{:.2f}" for c in df.columns if c != "Mese"}), use_container_width=True)
+    
+    # Grafico
+    st.line_chart(df.set_index("Mese")[["Target", "Reale Totale"]])
+
+# --- 5. INTERFACCIA PRINCIPALE ---
+st.title("🛡️ Unipolservice Budget HUB 2.0")
+
+t_carr, t_mecc = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
+
+with t_carr:
+    render_settore("Carrozzeria", b_carr, voci_carr)
+
+with t_mecc:
+    render_settore("Meccanica", b_mecc, voci_mecc)
+
+# --- 6. DOWNLOAD ---
 st.divider()
-
-# --- 4. CARICAMENTO ---
-st.file_uploader("📂 Carica Report Precedente", type="xlsx", key="uploader", on_change=process_upload)
-
-# --- 5. INPUT DATI ---
-st.subheader("📝 Inserimento Dati Mensili")
-with st.expander("Apri Gestione Mensile", expanded=True):
-    cols = st.columns(3)
-    for i, m in enumerate(mesi):
-        with cols[i % 3]:
-            d = st.session_state['dati_mensili'][m]
-            v = st.session_state.file_version
-            s_m = st.number_input(f"Mecc {m} (€)", value=d['mecc'], key=f"m_{m}_{v}", format="%.2f")
-            s_c = st.number_input(f"Carr {m} (€)", value=d['carr'], key=f"c_{m}_{v}", format="%.2f")
-            txt = st.text_input(f"Note {m}", value=d['note'], key=f"n_{m}_{v}")
-            st.session_state['dati_mensili'][m] = {'mecc': round(s_m, 2), 'carr': round(s_c, 2), 'note': txt}
-
-# --- 6. CALCOLI ---
-pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
-quota_base = (budget_annuo - fondo) / sum(pesi.values())
-report = []
-for m in mesi:
-    target = round(quota_base * pesi[m], 2)
-    d = st.session_state['dati_mensili'][m]
-    tot = round(d['mecc'] + d['carr'], 2)
-    report.append({
-        "Mese": m, 
-        "Target": target, 
-        "Reale": tot,
-        "Delta": round(target - tot, 2), 
-        "Status": "🔴 SFORO" if (tot > target and tot > 0) else ("🟢 OK" if tot > 0 else "⚪ ATTESA"),
-        "Meccanica": d['mecc'], 
-        "Carrozzeria": d['carr'], 
-        "Note": d['note']
-    })
-df_rep = pd.DataFrame(report)
-
-# --- 7. DASHBOARD ---
-st.divider()
-speso_tot = round(df_rep["Reale"].sum(), 2)
-c1, c2, c3 = st.columns(3)
-c1.metric("Budget Utilizzato", f"{speso_tot} €", f"{round((speso_tot/budget_annuo)*100, 1)}%")
-c2.metric("Residuo", f"{round(budget_annuo - speso_tot, 2)} €")
-c3.metric("Fondo Riserva", f"{fondo} €")
-
-def color_status(val):
-    color = 'red' if 'SFORO' in str(val) else ('green' if 'OK' in str(val) else 'gray')
-    return f'color: {color}; font-weight: bold'
-
-fmt = {"Target": "{:.2f}", "Reale": "{:.2f}", "Delta": "{:.2f}", "Meccanica": "{:.2f}", "Carrozzeria": "{:.2f}"}
-st.dataframe(df_rep.style.applymap(color_status, subset=['Status']).format(fmt), use_container_width=True)
-
-st.line_chart(df_rep.set_index("Mese")[["Target", "Reale"]])
-
-# --- 8. DOWNLOAD ---
-output = io.BytesIO()
-with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-    df_rep.to_excel(writer, index=False, sheet_name='Budget_HUB')
-st.download_button("📥 Scarica Report HUB", output.getvalue(), "Unipolservice_Budget_HUB.xlsx")
+if st.button("📥 Genera Report Excel Finale"):
+    # Logica per creare un excel con due fogli
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for s in ["Carrozzeria", "Meccanica"]:
+            # Trasformazione dei dati complessi in tabella piatta per Excel
+            flat_data = []
+            for m in mesi:
+                for v in (voci_carr if s == "Carrozzeria" else voci_mecc):
+                    for p in partner:
+                        flat_data.append({
+                            "Mese": m, "Settore": s, "Attività": v, "Partner": p, 
+                            "Spesa": st.session_state['db'][s][m][v][p],
+                            "Note": st.session_state['note'][s][m]
+                        })
+            pd.DataFrame(flat_data).to_excel(writer, index=False, sheet_name=s)
+    st.download_button("Clicca qui per scaricare", output.getvalue(), "Unipolservice_Full_Report.xlsx")
