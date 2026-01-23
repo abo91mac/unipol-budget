@@ -4,79 +4,84 @@ import io
 
 st.set_page_config(page_title="Unipolservice Budget HUB 2.0", layout="wide")
 
-# --- CONFIGURAZIONE ---
+# --- 1. CONFIGURAZIONE FISSA ---
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 PARTNER = ["KONECTA", "COVISIAN"]
+VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti ricevuti da carrozzeria", "Recupero firme Digitali attività outbound", "solleciti outbound (TODO)"]
+VOCI_MECC = ["Solleciti outbound Officine (TODO)", "Gestione ticket assistenza"]
 
-# Usiamo parole chiave brevi per trovare le righe nell'Excel
-MAPPA_VOCI = {
-    "Carrozzeria": {
-        "Gestione Contatti": "Gestione Contatti",
-        "Ricontatto": "Ricontatto",
-        "Documenti ricevuti da carrozzeria": "Documenti",
-        "Recupero firme Digitali attività outbound": "Firme",
-        "solleciti outbound (TODO)": "Solleciti outbound"
-    },
-    "Meccanica": {
-        "Solleciti outbound Officine (TODO)": "Solleciti outbound Officine",
-        "Gestione ticket assistenza": "Ticket"
-    }
-}
-
+# --- 2. INIZIALIZZAZIONE ---
 if 'db' not in st.session_state:
-    st.session_state['db'] = {s: {m: {v: {p: 0.0 for p in PARTNER} for v in MAPPA_VOCI[s]} for m in MESI} for s in ["Carrozzeria", "Meccanica"]}
+    st.session_state['db'] = {
+        "Carrozzeria": {m: {v: {p: 0.0 for p in PARTNER} for v in VOCI_CARR} for m in MESI},
+        "Meccanica": {m: {v: {p: 0.0 for p in PARTNER} for v in VOCI_MECC} for m in MESI}
+    }
+    st.session_state['note'] = {"Carrozzeria": {m: "" for m in MESI}, "Meccanica": {m: "" for m in MESI}}
 if 'v' not in st.session_state: st.session_state['v'] = 0
 
-def carica_excel():
-    if st.session_state.uploader is None: return
-    try:
-        # Leggiamo tutto il foglio
-        df = pd.read_excel(st.session_state.uploader, sheet_name="External carrozzeria-meccanica", header=None)
-        df = df.astype(str).replace('nan', '')
-        
-        aggiornati = 0
-        for settore in ["Carrozzeria", "Meccanica"]:
-            for voce_app, chiave_excel in MAPPA_VOCI[settore].items():
-                for p in PARTNER:
-                    # Cerchiamo la riga che contiene il Partner E la Chiave Attività
-                    for i in range(len(df)):
-                        riga_testo = " ".join(df.iloc[i, 0:5]).upper()
-                        if p in riga_testo and chiave_excel.upper() in riga_testo:
-                            # Trovata riga: estraiamo i 12 mesi (Colonna H=7, J=9, L=11...)
-                            for m_idx, m_nome in enumerate(MESI):
-                                col_idx = 7 + (m_idx * 2)
-                                try:
-                                    val_raw = df.iloc[i, col_idx].replace('.', '').replace(',', '.')
-                                    st.session_state['db'][settore][m_nome][voce_app][p] = float(val_raw)
-                                    aggiornati += 1
-                                except: pass
-        
-        st.session_state['v'] += 1
-        st.success(f"✅ HUB Aggiornato! Trovate {aggiornati} corrispondenze nel file.")
-    except Exception as e:
-        st.error(f"Errore: {e}")
+# --- 3. GESTIONE EXCEL (Caricamento e Generazione Template) ---
+def crea_template():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for sett, voci in [("Carrozzeria", VOCI_CARR), ("Meccanica", VOCI_MECC)]:
+            rows = []
+            for m in MESI:
+                for v in voci:
+                    for p in PARTNER:
+                        rows.append({"Mese": m, "Attività": v, "Partner": p, "Importo": 0.0})
+            pd.DataFrame(rows).to_excel(writer, sheet_name=sett, index=False)
+    return output.getvalue()
 
-# --- INTERFACCIA ---
-st.sidebar.title("⚙️ Control Panel")
-st.sidebar.file_uploader("Carica File Excel", type="xlsx", key="uploader", on_change=carica_excel)
-b_c = st.sidebar.number_input("Budget Carrozzeria", value=386393.0)
-b_m = st.sidebar.number_input("Budget Meccanica", value=120000.0)
+def processa_caricamento():
+    if st.session_state.uploader:
+        try:
+            xls = pd.ExcelFile(st.session_state.uploader)
+            for sett in ["Carrozzeria", "Meccanica"]:
+                if sett in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sett)
+                    for _, row in df.iterrows():
+                        m, v, p, val = row['Mese'], row['Attività'], row['Partner'], row['Importo']
+                        if m in MESI and p in PARTNER:
+                            st.session_state['db'][sett][m][v][p] = float(val)
+            st.session_state['v'] += 1
+            st.toast("✅ Dati caricati con successo!")
+        except Exception as e:
+            st.error(f"Formato file non corretto: {e}")
 
-def display(nome, budget, voci_mappa):
-    st.header(f"Sezione {nome}")
+# --- 4. SIDEBAR ---
+st.sidebar.title("⚙️ HUB Control Panel")
+
+# Download Template
+st.sidebar.download_button("📥 Scarica Template Excel", data=crea_template(), file_name="Template_Budget_HUB.xlsx")
+
+# Upload
+st.sidebar.file_uploader("📂 Carica File Compilato", type="xlsx", key="uploader", on_change=processa_caricamento)
+
+st.sidebar.divider()
+b_carr = st.sidebar.number_input("Budget Annuale Carrozzeria (€)", value=386393.0)
+b_mecc = st.sidebar.number_input("Budget Annuale Meccanica (€)", value=120000.0)
+
+# --- 5. INTERFACCIA DASHBOARD ---
+def render_dashboard(settore, budget, voci):
+    st.header(f"Dashboard {settore}")
     
-    # Calcolo dati tabella
+    # --- PARTE MANUALE ---
+    with st.expander(f"✍️ Inserimento Manuale e Note - {settore}", expanded=True):
+        m_sel = st.selectbox(f"Seleziona Mese", MESI, key=f"sel_{settore}")
+        st.session_state['note'][settore][m_sel] = st.text_area("Note del mese:", value=st.session_state['note'][settore][m_sel], key=f"nt_{settore}_{m_sel}")
+        
+        for v in voci:
+            st.markdown(f"**{v}**")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.session_state['db'][settore][m_sel][v]["KONECTA"] = st.number_input(f"KONECTA (€)", value=st.session_state['db'][settore][m_sel][v]["KONECTA"], key=f"k_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
+            with c2:
+                st.session_state['db'][settore][m_sel][v]["COVISIAN"] = st.number_input(f"COVISIAN (€)", value=st.session_state['db'][settore][m_sel][v]["COVISIAN"], key=f"c_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
+
+    # --- ANALISI ---
+    st.divider()
     report = []
+    target_m = budget / 12
     for m in MESI:
-        val_k = sum(st.session_state['db'][nome][m][v]["KONECTA"] for v in voci_mappa)
-        val_c = sum(st.session_state['db'][nome][m][v]["COVISIAN"] for v in voci_mappa)
-        report.append({"Mese": m, "Budget": round(budget/12, 2), "Reale": round(val_k + val_c, 2), "KONECTA": val_k, "COVISIAN": val_c})
-    
-    df = pd.DataFrame(report)
-    st.dataframe(df, use_container_width=True)
-    st.bar_chart(df.set_index("Mese")[["KONECTA", "COVISIAN"]])
-
-st.title("🛡️ Unipolservice Budget HUB 2.0")
-t1, t2 = st.tabs(["🚗 Carrozzeria", "🔧 Meccanica"])
-with t1: display("Carrozzeria", b_c, MAPPA_VOCI["Carrozzeria"])
-with t2: display("Meccanica", b_m, MAPPA_VOCI["Meccanica"])
+        k_tot = sum(st.session_state['db'][settore][m][v]["KONECTA"] for v in voci)
+        c_tot = sum(st
