@@ -8,9 +8,8 @@ st.set_page_config(page_title="Unipolservice Budget HUB 2.0", layout="wide")
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
         "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 PARTNER = ["KONECTA", "COVISIAN"]
-VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti ricevuti da carrozzeria", 
-             "Recupero firme Digitali attività outbound", "solleciti outbound (TODO)"]
-VOCI_MECC = ["Solleciti outbound Officine (TODO)", "Gestione ticket assistenza"]
+VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti", "Firme Digitali", "Solleciti"]
+VOCI_MECC = ["Solleciti Officine", "Ticket assistenza"]
 
 # --- 2. INIZIALIZZAZIONE SESSIONE ---
 if 'db' not in st.session_state:
@@ -47,40 +46,52 @@ def processa_caricamento():
                         if m in MESI and p in PARTNER:
                             st.session_state['db'][sett][m][v][p] = float(val)
             st.session_state['v'] += 1
-            st.toast("✅ Dati caricati correttamente!")
+            st.toast("✅ Excel caricato!")
         except Exception as e:
-            st.error(f"Errore caricamento: {e}")
+            st.error(f"Errore: {e}")
 
 # --- 4. SIDEBAR ---
 st.sidebar.title("⚙️ HUB Control Panel")
-st.sidebar.download_button("📥 Scarica Template Excel", data=crea_template(), file_name="Template_Budget_HUB.xlsx")
-st.sidebar.file_uploader("📂 Carica Excel Compilato", type="xlsx", key="uploader", on_change=processa_caricamento)
-
+st.sidebar.download_button("📥 Scarica Template", data=crea_template(), file_name="Template_Budget.xlsx")
+st.sidebar.file_uploader("📂 Carica Excel", type="xlsx", key="uploader", on_change=processa_caricamento)
 st.sidebar.divider()
-b_carr = st.sidebar.number_input("Budget Annuale Carrozzeria (€)", value=386393.0)
-b_mecc = st.sidebar.number_input("Budget Annuale Meccanica (€)", value=120000.0)
+b_carr = st.sidebar.number_input("Budget Carrozzeria", value=386393.0)
+b_mecc = st.sidebar.number_input("Budget Meccanica", value=120000.0)
 
 # --- 5. RENDER DASHBOARD ---
 def render_dashboard(settore, budget, voci):
     st.header(f"Sezione {settore}")
     
     # --- MODALITÀ MANUALE ---
-    with st.expander(f"✍️ Inserimento Manuale e Note - {settore}", expanded=True):
-        m_sel = st.selectbox(f"Seleziona Mese ({settore})", MESI, key=f"sel_{settore}")
-        st.session_state['note'][settore][m_sel] = st.text_area("Note del mese:", 
-                                                               value=st.session_state['note'][settore][m_sel], 
-                                                               key=f"nt_{settore}_{m_sel}")
+    with st.expander(f"📝 Gestione Manuale {settore}", expanded=True):
+        m_sel = st.selectbox(f"Mese ({settore})", MESI, key=f"sel_{settore}")
+        st.session_state['note'][settore][m_sel] = st.text_area("Note:", value=st.session_state['note'][settore][m_sel], key=f"nt_{settore}_{m_sel}")
         
         for v in voci:
-            st.markdown(f"**{v}**")
+            st.write(f"**{v}**")
             c1, c2 = st.columns(2)
             with c1:
-                k_val = st.number_input(f"KONECTA (€) - {v}", 
-                                        value=st.session_state['db'][settore][m_sel][v]["KONECTA"], 
-                                        key=f"k_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
+                k_val = st.number_input(f"K - {v}", value=st.session_state['db'][settore][m_sel][v]["KONECTA"], key=f"k_{settore}_{m_sel}_{v}_{st.session_state['v']}")
                 st.session_state['db'][settore][m_sel][v]["KONECTA"] = k_val
             with c2:
-                c_val = st.number_input(f"COVISIAN (€) - {v}", 
-                                        value=st.session_state['db'][settore][m_sel][v]["COVISIAN"], 
-                                        key=f"c_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
-                st.session_state['db'][settore][m_sel][v
+                c_val = st.number_input(f"C - {v}", value=st.session_state['db'][settore][m_sel][v]["COVISIAN"], key=f"c_{settore}_{m_sel}_{v}_{st.session_state['v']}")
+                st.session_state['db'][settore][m_sel][v]["COVISIAN"] = c_val
+
+    # --- GRAFICI E TABELLA ---
+    st.divider()
+    report = []
+    for m in MESI:
+        k = sum(st.session_state['db'][settore][m][v]["KONECTA"] for v in voci)
+        c = sum(st.session_state['db'][settore][m][v]["COVISIAN"] for v in voci)
+        report.append({"Mese": m, "Budget": round(budget/12, 2), "Reale": round(k+c, 2), "K": k, "C": c})
+    
+    df = pd.DataFrame(report)
+    st.metric("Speso Totale", f"{df['Reale'].sum():,.2f} €")
+    st.dataframe(df, use_container_width=True)
+    st.bar_chart(df.set_index("Mese")[["K", "C"]])
+
+# --- 6. MAIN ---
+st.title("🛡️ Unipolservice Budget HUB 2.0")
+t1, t2 = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
+with t1: render_dashboard("Carrozzeria", b_carr, VOCI_CARR)
+with t2: render_dashboard("Meccanica", b_mecc, VOCI_MECC)
