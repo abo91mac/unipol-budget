@@ -50,7 +50,7 @@ pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
 quota_base = (budget_annuo - fondo) / sum(pesi.values())
 
 # --- 4. CARICAMENTO FILE ---
-st.title("🛡️ UnipolSai Budget Control")
+st.title("🛡️ Unipolservice Budget HUB")
 st.file_uploader("📂 Carica l'Excel salvato in precedenza", type="xlsx", 
                  key="uploader", on_change=process_upload)
 
