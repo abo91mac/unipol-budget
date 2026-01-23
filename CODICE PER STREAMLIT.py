@@ -2,113 +2,104 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="UnipolSai Strategic Planner", layout="wide")
+# Configurazione della scheda del browser
+st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
 
-# --- 1. INIZIALIZZAZIONE MEMORIA ---
+# --- 1. MEMORIA DI SESSIONE ---
 mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
         "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
 
 if 'dati_mensili' not in st.session_state:
-    st.session_state['dati_mensili'] = {m: (0.0, 0.0) for m in mesi}
-
+    st.session_state['dati_mensili'] = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
 if 'file_version' not in st.session_state:
     st.session_state['file_version'] = 0
 
-# --- 2. FUNZIONE CALLBACK PER CARICAMENTO ---
 def process_upload():
     if st.session_state.uploader is not None:
         try:
             df_load = pd.read_excel(st.session_state.uploader)
-            nuovi_dati = {m: (0.0, 0.0) for m in mesi}
+            nuovi_dati = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
             for _, row in df_load.iterrows():
                 m = row.get('Mese')
                 if m in nuovi_dati:
-                    # Cerchiamo le colonne correggendo eventuali spazi
-                    s_m = float(row.get('Spesa Meccanica (€)', 0.0))
-                    s_c = float(row.get('Spesa Carrozzeria (€)', 0.0))
-                    nuovi_dati[m] = (s_m, s_c)
-            
-            # Aggiorniamo la memoria e cambiamo la versione per resettare i widget
+                    nuovi_dati[m] = {
+                        'mecc': float(row.get('Spesa Meccanica (€)', 0.0)),
+                        'carr': float(row.get('Spesa Carrozzeria (€)', 0.0)),
+                        'note': str(row.get('Note/Causali', '')) if pd.notna(row.get('Note/Causali')) else ''
+                    }
             st.session_state['dati_mensili'] = nuovi_dati
-            st.session_state['file_version'] += 1 
-            st.toast("✅ File caricato e campi aggiornati!")
+            st.session_state['file_version'] += 1
+            st.toast("✅ Budget HUB Aggiornato!")
         except Exception as e:
-            st.error(f"Errore: {e}")
+            st.error(f"Errore caricamento: {e}")
 
-# --- 3. SIDEBAR ---
-st.sidebar.header("💰 Budget & Percentuali")
-budget_annuo = st.sidebar.number_input("Budget Totale Annuo (€)", value=300000)
-fondo = st.sidebar.slider("Fondo Emergenze (€)", 0, 30000, 5000)
+# --- 2. SIDEBAR ---
+st.sidebar.title("⚙️ HUB Control Panel")
+budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=300000)
+fondo = st.sidebar.slider("Fondo Riserva (€)", 0, 50000, 5000)
+p_mecc = st.sidebar.slider("% Target Meccanica", 0, 100, 60)
 
-var_pct = {}
-with st.sidebar.expander("Regola Stagionalità (%)"):
-    for m in mesi:
-        def_v = 30 if m in ["Luglio", "Ottobre"] else 0
-        var_pct[m] = st.slider(f"{m} (%)", -50, 100, def_v)
+with st.sidebar.expander("📅 Regolazione Stagionalità (%)"):
+    var_pct = {m: st.slider(f"{m}", -50, 100, (30 if m in ["Luglio", "Ottobre"] else 0)) for m in mesi}
 
+# --- 3. TITOLO PRINCIPALE ---
+st.title("🛡️ Unipolservice Budget HUB")
+st.markdown("---")
+
+# --- 4. CARICAMENTO ---
+st.file_uploader("📂 Carica Report Precedente", type="xlsx", key="uploader", on_change=process_upload)
+
+# --- 5. INPUT DATI ---
+st.subheader("📝 Inserimento Dati Mensili")
+with st.expander("Apri Gestione Mensile", expanded=True):
+    cols = st.columns(3)
+    for i, m in enumerate(mesi):
+        with cols[i % 3]:
+            st.markdown(f"**{m}**")
+            d = st.session_state['dati_mensili'][m]
+            ver = st.session_state.file_version
+            s_m = st.number_input(f"Mecc (€)", value=d['mecc'], key=f"m_{m}_{ver}")
+            s_c = st.number_input(f"Carr (€)", value=d['carr'], key=f"c_{m}_{ver}")
+            txt = st.text_input(f"Note {m}", value=d['note'], key=f"n_{m}_{ver}")
+            st.session_state['dati_mensili'][m] = {'mecc': s_m, 'carr': s_c, 'note': txt}
+
+# --- 6. LOGICA E CALCOLI ---
 pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
 quota_base = (budget_annuo - fondo) / sum(pesi.values())
-
-# --- 4. CARICAMENTO FILE ---
-st.title("🛡️ Unipolservice Budget HUB")
-st.file_uploader("📂 Carica l'Excel salvato in precedenza", type="xlsx", 
-                 key="uploader", on_change=process_upload)
-
-# --- 5. INPUT DATI (CON KEY DINAMICA) ---
-spese_effettive = {}
-with st.expander("📝 Inserimento/Modifica Spese", expanded=True):
-    c1, c2 = st.columns(2)
-    for i, m in enumerate(mesi):
-        with (c1 if i < 6 else c2):
-            val_m, val_c = st.session_state['dati_mensili'][m]
-            
-            # La key include 'file_version': se cambia il file, cambia la key, 
-            # e Streamlit aggiorna il valore visualizzato nel box.
-            s_m = st.number_input(f"Mecc {m}", value=val_m, 
-                                  key=f"m_{m}_{st.session_state.file_version}")
-            s_c = st.number_input(f"Carr {m}", value=val_c, 
-                                  key=f"c_{m}_{st.session_state.file_version}")
-            
-            # Salviamo le modifiche manuali subito nella session_state
-            st.session_state['dati_mensili'][m] = (s_m, s_c)
-            spese_effettive[m] = (s_m, s_c)
-
-# --- 6. REPORT E CALCOLI ---
 report = []
-spesa_reale_tot = 0
-mesi_comp = 0
 for m in mesi:
     target = quota_base * pesi[m]
-    s_m, s_c = st.session_state['dati_mensili'][m]
-    tot_m = s_m + s_c
-    if tot_m > 0:
-        spesa_reale_tot += tot_m
-        mesi_comp += 1
+    d = st.session_state['dati_mensili'][m]
+    tot = d['mecc'] + d['carr']
+    diff = target - tot
     report.append({
-        "Mese": m, "Budget Target (€)": round(target, 2),
-        "Spesa Meccanica (€)": s_m, "Spesa Carrozzeria (€)": s_c,
-        "Totale Reale (€)": tot_m
+        "Mese": m, "Target (€)": round(target, 2), "Reale (€)": tot,
+        "Delta (€)": round(diff, 2), "Status": "🔴 SFORO" if (tot > target and tot > 0) else ("🟢 OK" if tot > 0 else "⚪ ATTESA"),
+        "Spesa Meccanica (€)": d['mecc'], "Spesa Carrozzeria (€)": d['carr'], "Note/Causali": d['note']
     })
+df_rep = pd.DataFrame(report)
 
-df = pd.DataFrame(report)
+# --- 7. DASHBOARD ---
+st.divider()
+speso_tot = df_rep["Reale (€)"].sum()
+rimanente = budget_annuo - speso_tot
+c1, c2, c3 = st.columns(3)
+c1.metric("Budget Utilizzato", f"{round(speso_tot, 2)} €", f"{round((speso_tot/budget_annuo)*100, 1)}%")
+c2.metric("Disponibilità Residua", f"{round(rimanente, 2)} €")
+c3.metric("Fondo Riserva", f"{fondo} €")
 
-# --- 7. DASHBOARD ANDAMENTO ---
-if mesi_comp > 0:
-    st.divider()
-    media = spesa_reale_tot / mesi_comp
-    proiezione = (media * 12) + fondo
-    
-    col1, col2 = st.columns(2)
-    col1.metric("Proiezione Fine Anno", f"{round(proiezione, 2)} €", 
-               delta=f"{round(budget_annuo - proiezione, 2)} €")
-    col2.metric("Media Mensile Reale", f"{round(media, 2)} €")
-    
-    st.line_chart(df.set_index("Mese")[["Budget Target (€)", "Totale Reale (€)"]])
+def color_status(val):
+    color = 'red' if 'SFORO' in str(val) else ('green' if 'OK' in str(val) else 'gray')
+    return f'color: {color}; font-weight: bold'
 
-st.dataframe(df, use_container_width=True)
+st.dataframe(df_rep.style.applymap(color_status, subset=['Status']), use_container_width=True)
+
+# Grafico
+st.write("### 📈 Trend Budget vs Real")
+st.line_chart(df_rep.set_index("Mese")[["Target (€)", "Reale (€)"]])
 
 # --- 8. DOWNLOAD ---
 output = io.BytesIO()
 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-    df.to_excel(writer, index=False, sheet_name='Budget')
-st.download_button("📥 Scarica Report Excel", output.getvalue(), "report_unipol.xlsx")
+    df_rep.to_excel(writer, index=False, sheet_name='Budget_HUB_Report')
+st.download_button("📥 Scarica Report HUB", output.getvalue(), "Unipolservice_Budget_HUB.xlsx")
