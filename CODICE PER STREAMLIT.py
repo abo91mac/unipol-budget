@@ -17,6 +17,7 @@ if 'file_version' not in st.session_state:
 def reset_dati():
     st.session_state['dati_mensili'] = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
     st.session_state['file_version'] += 1
+    st.session_state['confirm_reset'] = False # Chiude il menu di conferma
     st.toast("⚠️ Tutti i dati sono stati azzerati!")
 
 def process_upload():
@@ -44,13 +45,28 @@ budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=3000
 fondo = st.sidebar.slider("Fondo Riserva (€)", 0, 50000, 5000)
 p_mecc = st.sidebar.slider("% Target Meccanica", 0, 100, 60)
 
-with st.sidebar.expander("📅 Regolazione Stagionalità (%)"):
-    var_pct = {m: st.slider(f"{m}", -50, 100, (30 if m in ["Luglio", "Ottobre"] else 0)) for m in mesi}
+with st.sidebar.expander("📅 Regolazione Stagionalità (%)", expanded=False):
+    # Modificato: ora il default è 0 per tutti i mesi
+    var_pct = {m: st.slider(f"{m}", -50, 100, 0) for m in mesi}
 
-# TASTO RESET NELLA SIDEBAR
+# --- TASTO RESET CON CONFERMA ---
 st.sidebar.divider()
-if st.sidebar.button("🗑️ RESET TOTALE DATI"):
-    reset_dati()
+if 'confirm_reset' not in st.session_state:
+    st.session_state['confirm_reset'] = False
+
+if not st.session_state['confirm_reset']:
+    if st.sidebar.button("🗑️ RESET TOTALE DATI"):
+        st.session_state['confirm_reset'] = True
+        st.rerun()
+else:
+    st.sidebar.warning("Sei sicuro?")
+    col_res1, col_res2 = st.sidebar.columns(2)
+    if col_res1.button("SÌ ✅", use_container_width=True):
+        reset_dati()
+        st.rerun()
+    if col_res2.button("NO ❌", use_container_width=True):
+        st.session_state['confirm_reset'] = False
+        st.rerun()
 
 # --- 3. TITOLO ---
 st.title("🛡️ Unipolservice Budget HUB")
