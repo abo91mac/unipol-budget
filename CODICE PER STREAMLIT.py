@@ -13,6 +13,12 @@ if 'dati_mensili' not in st.session_state:
 if 'file_version' not in st.session_state:
     st.session_state['file_version'] = 0
 
+# --- FUNZIONE RESET ---
+def reset_dati():
+    st.session_state['dati_mensili'] = {m: {'mecc': 0.0, 'carr': 0.0, 'note': ''} for m in mesi}
+    st.session_state['file_version'] += 1
+    st.toast("⚠️ Tutti i dati sono stati azzerati!")
+
 def process_upload():
     if st.session_state.uploader is not None:
         try:
@@ -22,9 +28,9 @@ def process_upload():
                 m = row.get('Mese')
                 if m in nuovi_dati:
                     nuovi_dati[m] = {
-                        'mecc': round(float(row.get('Spesa Meccanica (€)', 0.0)), 2),
-                        'carr': round(float(row.get('Spesa Carrozzeria (€)', 0.0)), 2),
-                        'note': str(row.get('Note/Causali', '')) if pd.notna(row.get('Note/Causali')) else ''
+                        'mecc': round(float(row.get('Meccanica', row.get('Spesa Meccanica (€)', 0.0))), 2),
+                        'carr': round(float(row.get('Carrozzeria', row.get('Spesa Carrozzeria (€)', 0.0))), 2),
+                        'note': str(row.get('Note', row.get('Note/Causali', ''))) if pd.notna(row.get('Note')) else ''
                     }
             st.session_state['dati_mensili'] = nuovi_dati
             st.session_state['file_version'] += 1
@@ -40,6 +46,11 @@ p_mecc = st.sidebar.slider("% Target Meccanica", 0, 100, 60)
 
 with st.sidebar.expander("📅 Regolazione Stagionalità (%)"):
     var_pct = {m: st.slider(f"{m}", -50, 100, (30 if m in ["Luglio", "Ottobre"] else 0)) for m in mesi}
+
+# TASTO RESET NELLA SIDEBAR
+st.sidebar.divider()
+if st.sidebar.button("🗑️ RESET TOTALE DATI"):
+    reset_dati()
 
 # --- 3. TITOLO ---
 st.title("🛡️ Unipolservice Budget HUB")
@@ -89,7 +100,6 @@ c1.metric("Budget Utilizzato", f"{speso_tot} €", f"{round((speso_tot/budget_an
 c2.metric("Residuo", f"{round(budget_annuo - speso_tot, 2)} €")
 c3.metric("Fondo Riserva", f"{fondo} €")
 
-# Formattazione Tabella
 def color_status(val):
     color = 'red' if 'SFORO' in str(val) else ('green' if 'OK' in str(val) else 'gray')
     return f'color: {color}; font-weight: bold'
@@ -97,8 +107,6 @@ def color_status(val):
 fmt = {"Target": "{:.2f}", "Reale": "{:.2f}", "Delta": "{:.2f}", "Meccanica": "{:.2f}", "Carrozzeria": "{:.2f}"}
 st.dataframe(df_rep.style.applymap(color_status, subset=['Status']).format(fmt), use_container_width=True)
 
-# Grafico
-st.write("### 📈 Trend Budget vs Real")
 st.line_chart(df_rep.set_index("Mese")[["Target", "Reale"]])
 
 # --- 8. DOWNLOAD ---
