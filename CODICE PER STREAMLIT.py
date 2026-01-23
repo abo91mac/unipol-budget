@@ -4,20 +4,36 @@ import io
 
 st.set_page_config(page_title="UnipolSai Strategic Planner", layout="wide")
 
-# --- 1. INIZIALIZZAZIONE MEMORIA (SESSION STATE) ---
+# --- 1. INIZIALIZZAZIONE MEMORIA ---
 mesi = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", 
         "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"]
 
 if 'dati_mensili' not in st.session_state:
-    # Creiamo una memoria vuota all'inizio
     st.session_state['dati_mensili'] = {m: (0.0, 0.0) for m in mesi}
 
-# --- 2. SIDEBAR CONFIGURAZIONE ---
+# --- 2. FUNZIONE CALLBACK PER IL CARICAMENTO ---
+def carica_dati_da_file():
+    if st.session_state.caricatore_file is not None:
+        try:
+            df_load = pd.read_excel(st.session_state.caricatore_file)
+            nuovi_dati = {m: (0.0, 0.0) for m in mesi}
+            for _, row in df_load.iterrows():
+                m = row['Mese']
+                if m in nuovi_dati:
+                    s_m = float(row.get('Spesa Meccanica (€)', 0.0))
+                    s_c = float(row.get('Spesa Carrozzeria (€)', 0.0))
+                    nuovi_dati[m] = (s_m, s_c)
+            st.session_state['dati_mensili'] = nuovi_dati
+            st.toast("✅ Dati caricati con successo!")
+        except Exception as e:
+            st.error(f"Errore nella lettura del file: {e}")
+
+# --- 3. SIDEBAR ---
 st.sidebar.header("💰 Configurazione Budget")
 budget_annuo = st.sidebar.number_input("Budget Totale Annuale (€)", value=300000)
 fondo_emergenze = st.sidebar.slider("Fondo Emergenze (€)", 0, 30000, 5000)
 
-st.sidebar.header("⚖️ Ripartizione Settori")
+st.sidebar.header("⚖️ Ripartizione")
 p_mecc = st.sidebar.slider("% Meccanica", 0, 100, 60)
 p_carr = 100 - p_mecc
 
@@ -31,41 +47,34 @@ with st.sidebar.expander("Modifica Percentuali Mensili"):
 pesi = {m: 1 + (v/100) for m, v in var_pct.items()}
 quota_base = (budget_annuo - fondo_emergenze) / sum(pesi.values())
 
-# --- 3. CARICAMENTO FILE (UPDATE MEMORIA) ---
+# --- 4. CARICAMENTO ---
 st.title("🛡️ UnipolSai Budget Control")
-uploaded_file = st.file_uploader("📂 Carica Excel per aggiornare i dati", type="xlsx")
+# L'uso di on_change e key è la chiave per far funzionare il caricamento
+st.file_uploader("📂 Carica Excel per aggiornare i dati", type="xlsx", 
+                 key="caricatore_file", on_change=carica_dati_da_file)
 
-if uploaded_file:
-    df_load = pd.read_excel(uploaded_file)
-    for _, row in df_load.iterrows():
-        m = row['Mese']
-        if m in st.session_state['dati_mensili']:
-            # Sovrascriviamo la memoria con i dati del file
-            s_m = float(row.get('Spesa Meccanica (€)', 0.0))
-            s_c = float(row.get('Spesa Carrozzeria (€)', 0.0))
-            st.session_state['dati_mensili'][m] = (s_m, s_c)
-    st.success("Dati caricati nella memoria dell'app!")
-
-# --- 4. INSERIMENTO/MODIFICA DATI ---
+# --- 5. INPUT DATI (LEGGONO DALLA MEMORIA) ---
 spese_finali = {}
-with st.expander("📝 Visualizza/Modifica Spese Mensili"):
+with st.expander("📝 Visualizza/Modifica Spese Mensili", expanded=True):
     c1, c2 = st.columns(2)
     for i, m in enumerate(mesi):
         with (c1 if i < 6 else c2):
-            # Usiamo i dati dalla session_state come valore predefinito
             val_m, val_c = st.session_state['dati_mensili'][m]
-            s_m = st.number_input(f"Mecc {m}", value=val_m, key=f"input_m_{m}")
-            s_c = st.number_input(f"Carr {m}", value=val_c, key=f"input_c_{m}")
+            # Usiamo i valori caricati come default
+            s_m = st.number_input(f"Mecc {m}", value=val_m, key=f"inp_m_{m}")
+            s_c = st.number_input(f"Carr {m}", value=val_c, key=f"inp_c_{m}")
+            # Aggiorniamo la sessione se l'utente cambia i dati a mano
+            st.session_state['dati_mensili'][m] = (s_m, s_c)
             spese_finali[m] = (s_m, s_c)
 
-# --- 5. CALCOLI E FORECASTING ---
+# --- 6. CALCOLI E FORECASTING ---
 report = []
 spesa_tot_reale = 0
 mesi_chiusi = 0
 
 for m in mesi:
     target = quota_base * pesi[m]
-    s_m, s_c = spese_finali[m]
+    s_m, s_c = st.session_state['dati_mensili'][m]
     tot = s_m + s_c
     if tot > 0:
         spesa_tot_reale += tot
@@ -80,26 +89,24 @@ for m in mesi:
 
 df = pd.DataFrame(report)
 
-# --- 6. DASHBOARD E PROGRESS BAR ---
+# --- 7. DASHBOARD E GRAFICO ---
 st.markdown("---")
-st.subheader("🔮 Analisi Avanzamento")
-progresso = min(spesa_tot_reale / budget_annuo, 1.0)
-st.progress(progresso)
-
 if mesi_chiusi > 0:
     media = spesa_tot_reale / mesi_chiusi
     stima = (media * 12) + fondo_emergenze
     diff = budget_annuo - stima
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Media Mensile Reale", f"{round(media, 2)} €")
-    col2.metric("Proiezione Finale", f"{round(stima, 2)} €", delta=f"{round(stima-budget_annuo, 2)} €", delta_color="inverse")
-    col3.metric("Avanzo Stimato", f"{round(diff, 2)} €")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Spesa Media Reale", f"{round(media, 2)} €")
+    m2.metric("Stima Fine Anno", f"{round(stima, 2)} €", delta=f"{round(stima-budget_annuo, 2)} €", delta_color="inverse")
+    m3.metric("Avanzo Stimato", f"{round(diff, 2)} €")
 
-st.table(df)
+    st.line_chart(df.set_index("Mese")[["Budget Target (€)", "Totale Reale (€)"]])
 
-# --- 7. DOWNLOAD ---
+st.dataframe(df, use_container_width=True)
+
+# --- 8. DOWNLOAD ---
 output = io.BytesIO()
 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
     df.to_excel(writer, index=False, sheet_name='Budget')
-st.download_button("📥 Scarica Report Aggiornato", output.getvalue(), "report_budget.xlsx")
+st.download_button("📥 Scarica Report Excel", output.getvalue(), "report_budget.xlsx")
