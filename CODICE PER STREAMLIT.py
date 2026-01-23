@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="Unipolservice Budget HUB 2.0", layout="wide")
 
-# --- 1. CONFIGURAZIONE FISSA ---
+# --- 1. CONFIGURAZIONE ---
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 PARTNER = ["KONECTA", "COVISIAN"]
 VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti ricevuti da carrozzeria", "Recupero firme Digitali attività outbound", "solleciti outbound (TODO)"]
@@ -19,7 +19,7 @@ if 'db' not in st.session_state:
     st.session_state['note'] = {"Carrozzeria": {m: "" for m in MESI}, "Meccanica": {m: "" for m in MESI}}
 if 'v' not in st.session_state: st.session_state['v'] = 0
 
-# --- 3. GESTIONE EXCEL (Caricamento e Generazione Template) ---
+# --- 3. FUNZIONI EXCEL ---
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -41,47 +41,4 @@ def processa_caricamento():
                     df = pd.read_excel(xls, sheet_name=sett)
                     for _, row in df.iterrows():
                         m, v, p, val = row['Mese'], row['Attività'], row['Partner'], row['Importo']
-                        if m in MESI and p in PARTNER:
-                            st.session_state['db'][sett][m][v][p] = float(val)
-            st.session_state['v'] += 1
-            st.toast("✅ Dati caricati con successo!")
-        except Exception as e:
-            st.error(f"Formato file non corretto: {e}")
-
-# --- 4. SIDEBAR ---
-st.sidebar.title("⚙️ HUB Control Panel")
-
-# Download Template
-st.sidebar.download_button("📥 Scarica Template Excel", data=crea_template(), file_name="Template_Budget_HUB.xlsx")
-
-# Upload
-st.sidebar.file_uploader("📂 Carica File Compilato", type="xlsx", key="uploader", on_change=processa_caricamento)
-
-st.sidebar.divider()
-b_carr = st.sidebar.number_input("Budget Annuale Carrozzeria (€)", value=386393.0)
-b_mecc = st.sidebar.number_input("Budget Annuale Meccanica (€)", value=120000.0)
-
-# --- 5. INTERFACCIA DASHBOARD ---
-def render_dashboard(settore, budget, voci):
-    st.header(f"Dashboard {settore}")
-    
-    # --- PARTE MANUALE ---
-    with st.expander(f"✍️ Inserimento Manuale e Note - {settore}", expanded=True):
-        m_sel = st.selectbox(f"Seleziona Mese", MESI, key=f"sel_{settore}")
-        st.session_state['note'][settore][m_sel] = st.text_area("Note del mese:", value=st.session_state['note'][settore][m_sel], key=f"nt_{settore}_{m_sel}")
-        
-        for v in voci:
-            st.markdown(f"**{v}**")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.session_state['db'][settore][m_sel][v]["KONECTA"] = st.number_input(f"KONECTA (€)", value=st.session_state['db'][settore][m_sel][v]["KONECTA"], key=f"k_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
-            with c2:
-                st.session_state['db'][settore][m_sel][v]["COVISIAN"] = st.number_input(f"COVISIAN (€)", value=st.session_state['db'][settore][m_sel][v]["COVISIAN"], key=f"c_{settore}_{m_sel}_{v}_{st.session_state['v']}", format="%.2f")
-
-    # --- ANALISI ---
-    st.divider()
-    report = []
-    target_m = budget / 12
-    for m in MESI:
-        k_tot = sum(st.session_state['db'][settore][m][v]["KONECTA"] for v in voci)
-        c_tot = sum(st
+                        if sett in st.session_state['db'] and m in MESI and v in st.session_state['db'][sett][m]:
