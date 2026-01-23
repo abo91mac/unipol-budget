@@ -17,9 +17,10 @@ if 'db' not in st.session_state:
         "Meccanica": {m: {v: {p: 0.0 for p in PARTNER} for v in VOCI_MECC} for m in MESI}
     }
     st.session_state['note'] = {"Carrozzeria": {m: "" for m in MESI}, "Meccanica": {m: "" for m in MESI}}
-if 'v' not in st.session_state: st.session_state['v'] = 0
+if 'v' not in st.session_state: 
+    st.session_state['v'] = 0
 
-# --- 3. FUNZIONI EXCEL ---
+# --- 3. FUNZIONI EXCEL (TEMPLATE E CARICAMENTO) ---
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -40,5 +41,4 @@ def processa_caricamento():
                 if sett in xls.sheet_names:
                     df = pd.read_excel(xls, sheet_name=sett)
                     for _, row in df.iterrows():
-                        m, v, p, val = row['Mese'], row['Attività'], row['Partner'], row['Importo']
-                        if sett in st.session_state['db'] and m in MESI and v in st.session_state['db'][sett][m]:
+                        m, v, p, val = row['Mese'], row['
