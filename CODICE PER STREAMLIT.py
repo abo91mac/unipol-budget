@@ -11,84 +11,97 @@ PARTNER = ["KONECTA", "COVISIAN"]
 VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti ricevuti da carrozzeria", "Recupero firme Digitali attività outbound", "solleciti outbound (TODO)"]
 VOCI_MECC = ["Solleciti outbound Officine (TODO)", "Gestione ticket assistenza"]
 
+# --- INIZIALIZZAZIONE SESSIONE ---
 if 'db' not in st.session_state:
     st.session_state['db'] = {
         "Carrozzeria": {m: {v: {p: 0.0 for p in PARTNER} for v in VOCI_CARR} for m in MESI},
         "Meccanica": {m: {v: {p: 0.0 for p in PARTNER} for v in VOCI_MECC} for m in MESI}
     }
-    st.session_state['v'] = 0
+if 'v' not in st.session_state: st.session_state['v'] = 0
 
-# --- LOGICA DI CARICAMENTO "TOTALE" ---
+# --- LOGICA DI CARICAMENTO ---
 def carica_excel():
     if st.session_state.uploader is None: return
     try:
-        # Carichiamo il foglio senza header per scansionare tutto
         df = pd.read_excel(st.session_state.uploader, sheet_name="External carrozzeria-meccanica", header=None)
-        df = df.astype(str).replace('nan', '') # Pulizia dati
+        df = df.astype(str).replace('nan', '')
         
-        found_count = 0
+        count = 0
         for settore, voci in [("Carrozzeria", VOCI_CARR), ("Meccanica", VOCI_MECC)]:
             for v in voci:
                 for p in PARTNER:
-                    # Cerchiamo la riga dove appaiono ENTRAMBI (Partner e Attività) nelle prime 4 colonne
                     for i in range(len(df)):
                         testo_riga = " ".join(df.iloc[i, 0:4]).upper()
-                        
-                        if p in testo_riga and v.upper()[:15] in testo_riga:
-                            # Trovata la riga! Ora estraiamo i mesi.
-                            # Nel tuo file GENNAIO CONSUNTIVO è alla colonna 7 (H)
+                        # Match flessibile per attività e partner
+                        if p in testo_riga and v.upper()[:12] in testo_riga:
                             for m_idx, m_nome in enumerate(MESI):
+                                col_idx = 7 + (m_idx * 2) # Colonna Consuntivo
                                 try:
-                                    col_idx = 7 + (m_idx * 2)
-                                    valore_str = df.iloc[i, col_idx].replace(',', '.')
-                                    valore = float(valore_str) if valore_str != '' else 0.0
+                                    val_str = df.iloc[i, col_idx].replace(',', '.')
+                                    valore = float(val_str) if val_str != '' else 0.0
+                                    # Salvataggio diretto in session_state
                                     st.session_state['db'][settore][m_nome][v][p] = valore
-                                    found_count += 1
+                                    count += 1
                                 except: pass
         
-        st.session_state['v'] += 1
-        if found_count > 0:
-            st.toast(f"✅ Successo! Caricati {found_count} valori.")
-        else:
-            st.error("⚠️ File letto, ma non ho trovato corrispondenze tra Partner e Attività. Verifica i nomi nel file.")
+        st.session_state['v'] += 1 # Incremento versione per refresh widget
+        st.success(f"Dati caricati: {count} celle aggiornate. Se non vedi i dati, premi il tasto 🔄 sotto.")
     except Exception as e:
-        st.error(f"Errore tecnico: {e}")
+        st.error(f"Errore: {e}")
 
 # --- SIDEBAR ---
 st.sidebar.title("⚙️ HUB Control Panel")
-st.sidebar.file_uploader("Carica Excel Consuntivi", type="xlsx", key="uploader", on_change=carica_excel)
+st.sidebar.file_uploader("Carica Excel", type="xlsx", key="uploader", on_change=carica_excel)
+
+if st.sidebar.button("🔄 Forza Aggiornamento Grafici"):
+    st.rerun()
+
 b_carr = st.sidebar.number_input("Budget Carrozzeria", value=386393.0)
 b_mecc = st.sidebar.number_input("Budget Meccanica", value=120000.0)
 
-# --- UI DASHBOARD ---
+# --- RENDER DASHBOARD ---
 def render_dashboard(nome, budget, voci):
-    st.header(f"Sezione {nome}")
+    st.header(f"Dashboard {nome}")
     
-    # Visualizzazione Tabella
-    data = []
+    # DATI PER VISUALIZZAZIONE
+    report = []
+    t_m = budget / 12
     for m in MESI:
+        # Recupero dinamico dei dati aggiornati dalla sessione
         k = sum(st.session_state['db'][nome][m][v]["KONECTA"] for v in voci)
         c = sum(st.session_state['db'][nome][m][v]["COVISIAN"] for v in voci)
-        data.append({"Mese": m, "Budget": round(budget/12, 2), "Reale": round(k+c, 2), "KONECTA": k, "COVISIAN": c})
+        report.append({
+            "Mese": m, 
+            "Target": round(t_m, 2), 
+            "Reale": round(k + c, 2), 
+            "KONECTA": round(k, 2), 
+            "COVISIAN": round(c, 2)
+        })
     
-    df_vis = pd.DataFrame(data)
+    df_rep = pd.DataFrame(report)
     
-    # Metriche
-    tot_reale = df_vis["Reale"].sum()
-    c1, c2 = st.columns(2)
-    c1.metric("Totale Speso", f"{tot_reale:,.2f} €")
-    c2.metric("Rimanente", f"{(budget-tot_reale):,.2f} €")
-    
-    st.table(df_vis) # Usiamo table per massima leggibilità
-    st.bar_chart(df_vis.set_index("Mese")[["KONECTA", "COVISIAN"]])
+    # METRICHE
+    speso = df_rep["Reale"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Speso", f"{speso:,.2f} €")
+    c2.metric("Residuo", f"{(budget - speso):,.2f} €")
+    c3.metric("%", f"{round((speso/budget)*100, 1)}%")
 
-    # Input manuale (in fondo per correzioni)
-    with st.expander("📝 Modifica manuale valori"):
+    # TABELLA E GRAFICO
+    st.dataframe(df_rep, use_container_width=True)
+    st.bar_chart(df_rep.set_index("Mese")[["KONECTA", "COVISIAN"]])
+
+    # MODIFICA MANUALE
+    with st.expander("📝 Modifica Valori Manualmente"):
         m_s = st.selectbox("Mese", MESI, key=f"sel_{nome}")
         for v in voci:
+            st.write(f"**{v}**")
             col1, col2 = st.columns(2)
-            st.session_state['db'][nome][m_s][v]["KONECTA"] = col1.number_input(f"{v} (K)", value=st.session_state['db'][nome][m_s][v]["KONECTA"], key=f"k_{nome}_{m_s}_{v}_{st.session_state['v']}")
-            st.session_state['db'][nome][m_s][v]["COVISIAN"] = col2.number_input(f"{v} (C)", value=st.session_state['db'][nome][m_s][v]["COVISIAN"], key=f"c_{nome}_{m_s}_{v}_{st.session_state['v']}")
+            # Nota: il valore di default 'value' è legato alla session_state aggiornata
+            val_k = col1.number_input(f"K - {v}", value=st.session_state['db'][nome][m_s][v]["KONECTA"], key=f"k_{nome}_{m_s}_{v}_{st.session_state['v']}")
+            val_c = col2.number_input(f"C - {v}", value=st.session_state['db'][nome][m_s][v]["COVISIAN"], key=f"c_{nome}_{m_s}_{v}_{st.session_state['v']}")
+            st.session_state['db'][nome][m_s][v]["KONECTA"] = val_k
+            st.session_state['db'][nome][m_s][v]["COVISIAN"] = val_c
 
 # --- MAIN ---
 st.title("🛡️ Unipolservice Budget HUB 2.0")
