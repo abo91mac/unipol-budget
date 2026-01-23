@@ -93,4 +93,49 @@ def render_dashboard(settore, budget_annuale, voci, pct_key):
         for p in PARTNER:
             c = st.columns([2, 1] + [1]*12)
             c[0].write(v)
-            c[1].
+            c[1].write(p)
+            for i, m in enumerate(MESI):
+                val_db = st.session_state['db'][settore][m][v][p]
+                st.session_state['db'][settore][m][v][p] = c[i+2].number_input(
+                    "€", value=val_db, key=f"in_{settore}_{v}_{p}_{m}", label_visibility="collapsed"
+                )
+
+    # --- ANALISI RIEPILOGO ---
+    st.divider()
+    st.subheader("📉 Analisi Budget vs Reale")
+    report = []
+    distribuzione = st.session_state[pct_key]
+    
+    for m in MESI:
+        # Target basato sulla percentuale digitata
+        target_m = (budget_annuale * distribuzione[m]) / 100
+        reale_m = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
+        
+        report.append({
+            "Mese": m,
+            "Peso %": f"{distribuzione[m]:.2f}%",
+            "Target (€)": round(target_m, 2),
+            "Consuntivo (€)": round(reale_m, 2),
+            "Delta (€)": round(target_m - reale_m, 2)
+        })
+    
+    df_rep = pd.DataFrame(report)
+    
+    # Metriche
+    speso = df_rep["Consuntivo (€)"].sum()
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Speso Totale", f"{speso:,.2f} €")
+    c2.metric("Residuo Annuale", f"{(budget_annuale - speso):,.2f} €")
+    c3.metric("Budget Annuale", f"{budget_annuale:,.2f} €")
+
+    st.table(df_rep.set_index("Mese"))
+    st.bar_chart(df_rep.set_index("Mese")[["Target (€)", "Consuntivo (€)"]])
+
+# --- MAIN ---
+st.title("🛡️ Unipolservice Budget HUB 2.0")
+b_carr = st.sidebar.number_input("Budget Annuale Carrozzeria", 386393.0, step=100.0)
+b_mecc = st.sidebar.number_input("Budget Annuale Meccanica", 120000.0, step=100.0)
+
+t1, t2 = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
+with t1: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
+with t2: render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
