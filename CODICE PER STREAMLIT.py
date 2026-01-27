@@ -48,3 +48,4 @@ VOCI_MECC = ["Solleciti Officine", "Ticket assistenza"]
 
 # --- 4. FUNZIONI DI RESET ---
 def reset_dati():
+    st.session_state['db'] = {s: {m: {v: {p: 0.0 for p in PARTNER} for v in (VOCI_CARR if s=="Carrozzeria" else VOCI_MECC)} for m in MESI} for s in ["Carrozzeria", "Me
