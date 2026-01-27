@@ -7,9 +7,13 @@ from PIL import Image
 # 1. SETUP PAGINA
 st.set_page_config(page_title="Unipol Budget HUB", layout="wide")
 
-# 2. LOGO
+# 2. GESTIONE LOGO
+# Usiamo un blocco 'try' per evitare che il logo blocchi l'intera app
 if os.path.exists('logo.png'):
-    st.sidebar.image('logo.png')
+    try:
+        st.sidebar.image('logo.png')
+    except Exception:
+        st.sidebar.warning("Caricamento logo in corso...")
 
 # 3. DATI E INIZIALIZZAZIONE
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
@@ -54,15 +58,15 @@ def esporta_consolidato():
     return output.getvalue()
 
 # 5. SIDEBAR
-st.sidebar.title("⚙️ Pannello Controllo")
+st.sidebar.title("⚙️ Controllo Budget")
 st.sidebar.download_button("📥 Scarica Template", data=crea_template(), file_name="Template.xlsx")
 st.sidebar.download_button("📤 Esporta Dati", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
-b_carr = st.sidebar.number_input("Budget Carrozzeria", 386393.0)
-b_mecc = st.sidebar.number_input("Budget Meccanica", 120000.0)
+b_carr = st.sidebar.number_input("Budget Carrozzeria (€)", 386393.0)
+b_mecc = st.sidebar.number_input("Budget Meccanica (€)", 120000.0)
 
-# 6. DASHBOARD
+# 6. FUNZIONE DASHBOARD
 def render_dashboard(settore, budget_totale, voci, pct_key):
-    with st.expander(f"📅 Distribuzione % {settore}"):
+    with st.expander(f"📅 Distribuzione % Mensile {settore}"):
         cols_pct = st.columns(6)
         for i, m in enumerate(MESI):
             st.session_state[pct_key][m] = cols_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
@@ -82,9 +86,10 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
         cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
         rep.append({"Mese": m, "Target": tar, "Consuntivo": cons, "Delta": tar - cons})
     
-    st.table(pd.DataFrame(rep).set_index("Mese"))
+    df = pd.DataFrame(rep).set_index("Mese")
+    st.table(df.style.format(precision=2))
 
-# 7. TABS
+# 7. TABS PRINCIPALI
 st.title("🛡️ Unipolservice Budget HUB")
 t1, t2 = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
 with t1: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
