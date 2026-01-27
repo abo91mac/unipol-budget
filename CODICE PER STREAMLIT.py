@@ -5,14 +5,11 @@ import os
 from PIL import Image
 
 # 1. SETUP PAGINA
-st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
+st.set_page_config(page_title="Unipol Budget HUB", layout="wide")
 
-# 2. GESTIONE LOGO (Sintassi aggiornata 2026)
+# 2. LOGO
 if os.path.exists('logo.png'):
-    try:
-        st.sidebar.image('logo.png', width='stretch')
-    except:
-        st.sidebar.image('logo.png') # Backup per versioni vecchie
+    st.sidebar.image('logo.png')
 
 # 3. DATI E INIZIALIZZAZIONE
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
@@ -58,12 +55,12 @@ def esporta_consolidato():
 
 # 5. SIDEBAR
 st.sidebar.title("⚙️ Pannello Controllo")
-st.sidebar.download_button("📥 Template", data=crea_template(), file_name="Template.xlsx")
-st.sidebar.download_button("📤 Esporta", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
+st.sidebar.download_button("📥 Scarica Template", data=crea_template(), file_name="Template.xlsx")
+st.sidebar.download_button("📤 Esporta Dati", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
 b_carr = st.sidebar.number_input("Budget Carrozzeria", 386393.0)
 b_mecc = st.sidebar.number_input("Budget Meccanica", 120000.0)
 
-# 6. FUNZIONE DASHBOARD
+# 6. DASHBOARD
 def render_dashboard(settore, budget_totale, voci, pct_key):
     with st.expander(f"📅 Distribuzione % {settore}"):
         cols_pct = st.columns(6)
@@ -71,14 +68,12 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
             st.session_state[pct_key][m] = cols_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
     
     st.subheader(f"📝 Input {settore}")
-    # Creiamo una tabella per l'input più leggera
     for v in voci:
         st.write(f"**{v}**")
         c = st.columns(12)
         for i, m in enumerate(MESI):
-            # Input semplificato per partner KONECTA (puoi espandere dopo)
             val = st.session_state['db'][settore][m][v]["KONECTA"]
-            st.session_state['db'][settore][m][v]["KONECTA"] = c[i].number_input(m[:3], value=val, key=f"in_{settore}_{v}_{m}")
+            st.session_state['db'][settore][m][v]["KONECTA"] = c[i].number_input(m[:3], value=val, key=f"in_{settore}_{v}_{m}", label_visibility="collapsed")
     
     st.divider()
     rep = []
