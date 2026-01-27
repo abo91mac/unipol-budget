@@ -35,7 +35,7 @@ if 'pct_carr' not in st.session_state:
 if 'pct_mecc' not in st.session_state:
     st.session_state['pct_mecc'] = {m: 8.33 for m in MESI}
 
-# 5. FUNZIONI EXCEL (IMPORT/EXPORT)
+# 5. FUNZIONI EXCEL
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -45,32 +45,3 @@ def crea_template():
                 for p in PARTNER:
                     row = {"Attività": v, "Partner": p}
                     for m in MESI: row[m] = 0.0
-                    data.append(row)
-            pd.DataFrame(data).to_excel(writer, sheet_name=sett, index=False)
-    return output.getvalue()
-
-def esporta_consolidato():
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        for sett in ["Carrozzeria", "Meccanica"]:
-            voci = VOCI_CARR if sett == "Carrozzeria" else VOCI_MECC
-            rows = []
-            for v in voci:
-                for p in PARTNER:
-                    r = {"Attività": v, "Partner": p}
-                    for m in MESI: r[m] = st.session_state['db'][sett][m][v][p]
-                    rows.append(r)
-            pd.DataFrame(rows).to_excel(writer, sheet_name=sett, index=False)
-    return output.getvalue()
-
-def carica_excel():
-    if st.session_state.uploader:
-        xls = pd.ExcelFile(st.session_state.uploader)
-        for sett in ["Carrozzeria", "Meccanica"]:
-            if sett in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=sett)
-                for _, row in df.iterrows():
-                    v, p = row['Attività'], row['Partner']
-                    for m in MESI:
-                        if m in df.columns:
-                            st.session_state['db'][sett][m][v][p] = float(row
