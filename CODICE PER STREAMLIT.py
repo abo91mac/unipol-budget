@@ -4,32 +4,64 @@ import io
 import os
 from PIL import Image
 
-# 1. SETUP PAGINA
-st.set_page_config(page_title="Unipol Budget HUB", layout="wide")
+# --- 1. CONFIGURAZIONE PAGINA ---
+st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
 
-# 2. GESTIONE LOGO
-# Usiamo un blocco 'try' per evitare che il logo blocchi l'intera app
-if os.path.exists('logo.png'):
-    try:
-        st.sidebar.image('logo.png')
-    except Exception:
-        st.sidebar.warning("Caricamento logo in corso...")
+# Tema grafico Blu Unipol
+st.markdown("""
+    <style>
+    .stApp { background-color: #f4f7f9; }
+    .stTabs [aria-selected="true"] { background-color: #003399 !important; color: white !important; }
+    .stButton>button { background-color: #003399; color: white; border-radius: 5px; width: 100%; }
+    div[data-testid="stMetricValue"] { color: #003399; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 3. DATI E INIZIALIZZAZIONE
+# --- 2. FUNZIONE LOGIN ---
+def check_password():
+    """Restituisce True se l'utente ha inserito le credenziali corrette."""
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
+
+    if not st.session_state["authenticated"]:
+        st.title("🛡️ Accesso Unipolservice HUB")
+        with st.form("login_form"):
+            user = st.text_input("Nome Utente")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Accedi")
+            
+            if submit:
+                if user == "unipolservice" and password == "Grunipol01":
+                    st.session_state["authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("Credenziali errate. Riprova.")
+        return False
+    return True
+
+# Se il login fallisce, interrompiamo l'esecuzione qui
+if not check_password():
+    st.stop()
+
+# --- 3. DATI E COSTANTI ---
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
         "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 PARTNER = ["KONECTA", "COVISIAN"]
 VOCI_CARR = ["Gestione Contatti", "Ricontatto", "Documenti", "Firme Digitali", "Solleciti"]
 VOCI_MECC = ["Solleciti Officine", "Ticket assistenza"]
 
-if 'db' not in st.session_state:
+# --- 4. FUNZIONI DI RESET ---
+def reset_dati():
     st.session_state['db'] = {s: {m: {v: {p: 0.0 for p in PARTNER} for v in (VOCI_CARR if s=="Carrozzeria" else VOCI_MECC)} for m in MESI} for s in ["Carrozzeria", "Meccanica"]}
-if 'pct_carr' not in st.session_state:
     st.session_state['pct_carr'] = {m: 8.33 for m in MESI}
-if 'pct_mecc' not in st.session_state:
     st.session_state['pct_mecc'] = {m: 8.33 for m in MESI}
+    st.toast("🧹 Tutti i dati sono stati azzerati!")
 
-# 4. FUNZIONI EXCEL
+# --- 5. INIZIALIZZAZIONE SESSION STATE ---
+if 'db' not in st.session_state:
+    reset_dati()
+
+# --- 6. FUNZIONI LOGICA EXCEL ---
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -57,40 +89,44 @@ def esporta_consolidato():
             pd.DataFrame(rows).to_excel(writer, sheet_name=sett, index=False)
     return output.getvalue()
 
-# 5. SIDEBAR
-st.sidebar.title("⚙️ Controllo Budget")
-st.sidebar.download_button("📥 Scarica Template", data=crea_template(), file_name="Template.xlsx")
-st.sidebar.download_button("📤 Esporta Dati", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
-b_carr = st.sidebar.number_input("Budget Carrozzeria (€)", 386393.0)
-b_mecc = st.sidebar.number_input("Budget Meccanica (€)", 120000.0)
+def carica_excel():
+    if st.session_state.uploader:
+        try:
+            xls = pd.ExcelFile(st.session_state.uploader)
+            for sett in ["Carrozzeria", "Meccanica"]:
+                if sett in xls.sheet_names:
+                    df = pd.read_excel(xls, sheet_name=sett)
+                    for _, row in df.iterrows():
+                        v, p = str(row['Attività']), str(row['Partner'])
+                        for m in MESI:
+                            if m in df.columns:
+                                st.session_state['db'][sett][m][v][p] = float(row[m])
+            st.toast("✅ Excel caricato con successo!")
+        except Exception as e:
+            st.error(f"Errore nel caricamento: {e}")
 
-# 6. FUNZIONE DASHBOARD
-def render_dashboard(settore, budget_totale, voci, pct_key):
-    with st.expander(f"📅 Distribuzione % Mensile {settore}"):
-        cols_pct = st.columns(6)
-        for i, m in enumerate(MESI):
-            st.session_state[pct_key][m] = cols_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
+# --- 7. SIDEBAR ---
+with st.sidebar:
+    if os.path.exists('logo.png'):
+        st.image('logo.png')
     
-    st.subheader(f"📝 Input {settore}")
-    for v in voci:
-        st.write(f"**{v}**")
-        c = st.columns(12)
-        for i, m in enumerate(MESI):
-            val = st.session_state['db'][settore][m][v]["KONECTA"]
-            st.session_state['db'][settore][m][v]["KONECTA"] = c[i].number_input(m[:3], value=val, key=f"in_{settore}_{v}_{m}", label_visibility="collapsed")
+    st.title("⚙️ Pannello")
+    if st.button("🚪 Logout"):
+        st.session_state["authenticated"] = False
+        st.rerun()
     
     st.divider()
-    rep = []
-    for m in MESI:
-        tar = (budget_totale * st.session_state[pct_key][m]) / 100
-        cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
-        rep.append({"Mese": m, "Target": tar, "Consuntivo": cons, "Delta": tar - cons})
+    st.subheader("📥 Download/Upload")
+    st.download_button("Scarica Template", data=crea_template(), file_name="Template_Budget.xlsx")
+    st.download_button("Esporta Consolidato", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
+    st.file_uploader("Carica Excel", type="xlsx", key="uploader", on_change=carica_excel)
     
-    df = pd.DataFrame(rep).set_index("Mese")
-    st.table(df.style.format(precision=2))
+    st.divider()
+    if st.button("🗑️ RESET DATI", help="Azzera tutti i consuntivi"):
+        reset_dati()
+        st.rerun()
 
-# 7. TABS PRINCIPALI
-st.title("🛡️ Unipolservice Budget HUB")
-t1, t2 = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
-with t1: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
-with t2: render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
+    st.divider()
+    st.subheader("💰 Budget Annuale")
+    b_carr = st.number_input("Carrozzeria (€)", value=386393.0)
+    b_mecc = st.number_input("Meccanica (€)", value=1200
