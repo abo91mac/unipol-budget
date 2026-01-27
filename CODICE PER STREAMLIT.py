@@ -4,10 +4,17 @@ import io
 import os
 from PIL import Image
 
-# Configurazione base
-st.set_page_config(page_title="Unipol Budget", layout="wide")
+# 1. SETUP PAGINA
+st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
 
-# Inizializzazione dati
+# 2. GESTIONE LOGO (Sintassi aggiornata 2026)
+if os.path.exists('logo.png'):
+    try:
+        st.sidebar.image('logo.png', width='stretch')
+    except:
+        st.sidebar.image('logo.png') # Backup per versioni vecchie
+
+# 3. DATI E INIZIALIZZAZIONE
 MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
         "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 PARTNER = ["KONECTA", "COVISIAN"]
@@ -21,7 +28,7 @@ if 'pct_carr' not in st.session_state:
 if 'pct_mecc' not in st.session_state:
     st.session_state['pct_mecc'] = {m: 8.33 for m in MESI}
 
-# Funzioni Excel
+# 4. FUNZIONI EXCEL
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -35,38 +42,55 @@ def crea_template():
             pd.DataFrame(data).to_excel(writer, sheet_name=sett, index=False)
     return output.getvalue()
 
-# Sidebar
-st.sidebar.title("Unipol HUB")
-if os.path.exists('logo.png'):
-    st.sidebar.image('logo.png')
-st.sidebar.download_button("Scarica Template", data=crea_template(), file_name="Template.xlsx")
-st.sidebar.divider()
+def esporta_consolidato():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for sett in ["Carrozzeria", "Meccanica"]:
+            voci = VOCI_CARR if sett == "Carrozzeria" else VOCI_MECC
+            rows = []
+            for v in voci:
+                for p in PARTNER:
+                    r = {"Attività": v, "Partner": p}
+                    for m in MESI: r[m] = st.session_state['db'][sett][m][v][p]
+                    rows.append(r)
+            pd.DataFrame(rows).to_excel(writer, sheet_name=sett, index=False)
+    return output.getvalue()
+
+# 5. SIDEBAR
+st.sidebar.title("⚙️ Pannello Controllo")
+st.sidebar.download_button("📥 Template", data=crea_template(), file_name="Template.xlsx")
+st.sidebar.download_button("📤 Esporta", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
 b_carr = st.sidebar.number_input("Budget Carrozzeria", 386393.0)
 b_mecc = st.sidebar.number_input("Budget Meccanica", 120000.0)
 
-# Dashboard
+# 6. FUNZIONE DASHBOARD
 def render_dashboard(settore, budget_totale, voci, pct_key):
-    with st.expander(f"Distribuzione % {settore}"):
-        cols = st.columns(6)
+    with st.expander(f"📅 Distribuzione % {settore}"):
+        cols_pct = st.columns(6)
         for i, m in enumerate(MESI):
-            st.session_state[pct_key][m] = cols[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
+            st.session_state[pct_key][m] = cols_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
     
-    st.subheader(f"Input {settore}")
+    st.subheader(f"📝 Input {settore}")
+    # Creiamo una tabella per l'input più leggera
     for v in voci:
-        with st.container():
-            st.write(f"**{v}**")
-            cols_in = st.columns(12)
-            for i, m in enumerate(MESI):
-                val = st.session_state['db'][settore][m][v]["KONECTA"] # Esempio semplificato
-                st.session_state['db'][settore][m][v]["KONECTA"] = cols_in[i].number_input(f"{m[:3]}", value=val, key=f"{settore}_{v}_{m}", label_visibility="collapsed")
+        st.write(f"**{v}**")
+        c = st.columns(12)
+        for i, m in enumerate(MESI):
+            # Input semplificato per partner KONECTA (puoi espandere dopo)
+            val = st.session_state['db'][settore][m][v]["KONECTA"]
+            st.session_state['db'][settore][m][v]["KONECTA"] = c[i].number_input(m[:3], value=val, key=f"in_{settore}_{v}_{m}")
     
     st.divider()
-    # Report semplificato per test
-    st.write(f"Analisi Budget {settore}")
-    res = [{"Mese": m, "Budget": (budget_totale * st.session_state[pct_key][m] / 100)} for m in MESI]
-    st.table(pd.DataFrame(res))
+    rep = []
+    for m in MESI:
+        tar = (budget_totale * st.session_state[pct_key][m]) / 100
+        cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
+        rep.append({"Mese": m, "Target": tar, "Consuntivo": cons, "Delta": tar - cons})
+    
+    st.table(pd.DataFrame(rep).set_index("Mese"))
 
-# Tabs
-t1, t2 = st.tabs(["CARROZZERIA", "MECCANICA"])
+# 7. TABS
+st.title("🛡️ Unipolservice Budget HUB")
+t1, t2 = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
 with t1: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
 with t2: render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
