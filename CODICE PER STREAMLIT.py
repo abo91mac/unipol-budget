@@ -4,11 +4,19 @@ import io
 import os
 from PIL import Image
 
-# 1. SETUP PAGINA
+# 1. SETUP PAGINA E TEMA
 st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
 
-# 2. GESTIONE LOGO (Nella Sidebar)
-# L'app cercherà il file 'logo.png' che hai caricato
+st.markdown("""
+    <style>
+    .stApp { background-color: #f4f7f9; }
+    .stTabs [aria-selected="true"] { background-color: #003399 !important; color: white !important; }
+    div[data-testid="stMetricValue"] { color: #003399; }
+    .stButton>button { background-color: #003399; color: white; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# 2. GESTIONE LOGO
 if os.path.exists('logo.png'):
     st.sidebar.image('logo.png', use_container_width=True)
 
@@ -27,57 +35,42 @@ if 'pct_carr' not in st.session_state:
 if 'pct_mecc' not in st.session_state:
     st.session_state['pct_mecc'] = {m: 8.33 for m in MESI}
 
-# 5. SIDEBAR
-st.sidebar.header("⚙️ Budget Annuale")
-budget_carr = st.sidebar.number_input("Carrozzeria (€)", 386393.0)
-budget_mecc = st.sidebar.number_input("Meccanica (€)", 120000.0)
+# 5. FUNZIONI EXCEL (IMPORT/EXPORT)
+def crea_template():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for sett, voci in [("Carrozzeria", VOCI_CARR), ("Meccanica", VOCI_MECC)]:
+            data = []
+            for v in voci:
+                for p in PARTNER:
+                    row = {"Attività": v, "Partner": p}
+                    for m in MESI: row[m] = 0.0
+                    data.append(row)
+            pd.DataFrame(data).to_excel(writer, sheet_name=sett, index=False)
+    return output.getvalue()
 
-# 6. FUNZIONE DASHBOARD
-def render_dashboard(settore, budget_totale, voci, pct_key):
-    # Distribuzione %
-    with st.expander(f"📅 Distribuzione Percentuale Mensile - {settore}"):
-        st.write("Inserisci la % di budget per ogni mese")
-        c_pct = st.columns(6)
-        for i, m in enumerate(MESI):
-            st.session_state[pct_key][m] = c_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"p_{settore}_{m}")
-    
-    st.write("---")
-    
-    # Input Tabellare
-    st.subheader(f"📝 Inserimento Consuntivi {settore}")
-    h_cols = st.columns([2, 1] + [1]*12)
-    h_cols[0].write("**Attività**")
-    h_cols[1].write("**Partner**")
-    for i, m in enumerate(MESI): 
-        h_cols[i+2].write(f"**{m[:3]}**")
+def esporta_consolidato():
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for sett in ["Carrozzeria", "Meccanica"]:
+            voci = VOCI_CARR if sett == "Carrozzeria" else VOCI_MECC
+            rows = []
+            for v in voci:
+                for p in PARTNER:
+                    r = {"Attività": v, "Partner": p}
+                    for m in MESI: r[m] = st.session_state['db'][sett][m][v][p]
+                    rows.append(r)
+            pd.DataFrame(rows).to_excel(writer, sheet_name=sett, index=False)
+    return output.getvalue()
 
-    for v in voci:
-        for p in PARTNER:
-            r_cols = st.columns([2, 1] + [1]*12)
-            r_cols[0].write(v)
-            r_cols[1].write(p)
-            for i, m in enumerate(MESI):
-                k = f"in_{settore}_{v}_{p}_{m}"
-                st.session_state['db'][settore][m][v][p] = r_cols[i+2].number_input("€", value=st.session_state['db'][settore][m][v][p], key=k, label_visibility="collapsed")
-
-    # Report
-    st.write("---")
-    rep = []
-    for m in MESI:
-        tar = (budget_totale * st.session_state[pct_key][m]) / 100
-        cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
-        rep.append({"Mese": m, "Target": tar, "Consuntivo": cons, "Delta": tar - cons})
-    
-    df_final = pd.DataFrame(rep).set_index("Mese")
-    st.table(df_final.style.format(precision=2))
-    st.bar_chart(df_final[["Target", "Consuntivo"]])
-
-# 7. TABS
-st.title("🛡️ Unipolservice Budget HUB")
-tab_carr, tab_mecc = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
-
-with tab_carr:
-    render_dashboard("Carrozzeria", budget_carr, VOCI_CARR, 'pct_carr')
-
-with tab_mecc:
-    render_dashboard("Meccanica", budget_mecc, VOCI_MECC, 'pct_mecc')
+def carica_excel():
+    if st.session_state.uploader:
+        xls = pd.ExcelFile(st.session_state.uploader)
+        for sett in ["Carrozzeria", "Meccanica"]:
+            if sett in xls.sheet_names:
+                df = pd.read_excel(xls, sheet_name=sett)
+                for _, row in df.iterrows():
+                    v, p = row['Attività'], row['Partner']
+                    for m in MESI:
+                        if m in df.columns:
+                            st.session_state['db'][sett][m][v][p] = float(row
