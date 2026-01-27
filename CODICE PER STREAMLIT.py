@@ -140,4 +140,4 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
     rep = []
     for m in MESI:
         tar = (budget_totale * st.session_state[pct_key][m]) / 100
-        cons = sum(st.session_state['db'][settore
+        cons = sum(st.session_state['db'][settore]
