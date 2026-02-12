@@ -58,4 +58,4 @@ with st.sidebar:
                                     if p_real in p_f:
                                         for m in M:
                                             if m in df.columns:
-                                                val = float(row
+                                                val = float(row)
