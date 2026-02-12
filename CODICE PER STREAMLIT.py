@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import io
 
-# --- 1. CONFIGURAZIONE ---
-st.set_page_config(layout="wide")
+# --- 1. SETUP ---
+st.set_page_config(layout="wide", page_title="Unipol Budget")
 
 M = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
      "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
@@ -20,7 +20,7 @@ def r_db():
         for m in M:
             d[sk][m] = {v: {p: 0.0 for p in P} for v in voci}
     st.session_state['db'] = d
-    st.session_state['v'] = "11.0"
+    st.session_state['v'] = "12.0"
 
 if 'v' not in st.session_state:
     r_db()
@@ -42,16 +42,16 @@ def crea_template():
 
 # --- 4. SIDEBAR ---
 with st.sidebar:
-    st.title("Pannello")
+    st.title("🛡️ Pannello")
     
     st.download_button(
-        "📥 Scarica Template",
+        "📥 Scarica Template Excel",
         crea_template(),
-        "template.xlsx"
+        "Template_Budget.xlsx"
     )
     
     st.divider()
-    u = st.file_uploader("Carica Excel", type="xlsx")
+    u = st.file_uploader("📂 Carica Excel", type="xlsx")
     
     if u:
         try:
@@ -59,4 +59,22 @@ with st.sidebar:
             for sk, sn in [("C", "Carrozzeria"), ("M", "Meccanica")]:
                 if sn in x.sheet_names:
                     df = pd.read_excel(x, sheet_name=sn)
-                    for _, row in df.
+                    for _, row in df.iterrows():
+                        v_f = str(row['Attività']).strip()
+                        p_f = str(row['Partner']).strip()
+                        # Controllo esistenza chiave
+                        if v_f in st.session_state['db'][sk][M[0]]:
+                            for m in M:
+                                if m in df.columns:
+                                    val = float(row[m])
+                                    st.session_state['db'][sk][m][v_f][p_f] = val
+            st.success("Dati caricati!")
+        except Exception as e:
+            st.error(f"Errore: {e}")
+
+    if st.button("🗑️ RESET"):
+        r_db()
+        st.rerun()
+    
+    bc = st.number_input("Budget Carrozzeria", 386393.0)
+    bm = st.number_input("
