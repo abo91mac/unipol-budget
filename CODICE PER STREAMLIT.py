@@ -2,50 +2,86 @@ import streamlit as st
 import pandas as pd
 import io
 
-# --- 1. SETUP ---
-st.set_page_config(page_title="Unipol HUB", layout="wide")
+# --- SETUP ---
+st.set_page_config(layout="wide")
 
-MESI = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
-        "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
-PARTNER = ["KONECTA", "COVISIAN"]
-V_CARR = ["Gestione Contatti", "Ricontatto", "Documenti", "Firme Digitali", "Solleciti"]
-V_MECC = ["Solleciti Officine", "Ticket assistenza"]
+M = ["GEN", "FEB", "MAR", "APR", "MAG", "GIU", 
+     "LUG", "AGO", "SET", "OTT", "NOV", "DIC"]
+P = ["KONECTA", "COVISIAN"]
+V_C = ["Contatti", "Ricontatto", "Doc", "Firme", "Soll"]
+V_M = ["Soll Off", "Ticket"]
 
-# --- 2. MEMORIA (Inizializzazione sicura) ---
+# --- INIT ---
 if 'db' not in st.session_state:
     db = {}
-    for s in ["Carrozzeria", "Meccanica"]:
+    for s in ["C", "M"]:
         db[s] = {}
-        voci = V_CARR if s == "Carrozzeria" else V_MECC
-        for m in MESI:
-            db[s][m] = {}
+        voci = V_C if s == "C" else V_M
+        for mese in M:
+            db[s][mese] = {}
             for v in voci:
-                db[s][m][v] = {"KONECTA": 0.0, "COVISIAN": 0.0}
+                db[s][mese][v] = {p: 0.0 for p in P}
     st.session_state['db'] = db
 
 if 'pct' not in st.session_state:
-    st.session_state['pct'] = {m: 8.33 for m in MESI}
+    st.session_state['pct'] = {mese: 8.33 for mese in M}
 
-# --- 3. SIDEBAR ---
+# --- SIDEBAR ---
 with st.sidebar:
-    st.title("🛡️ Unipolservice")
-    if st.button("🗑️ RESET DATI"):
+    st.title("🛡️ Unipol")
+    if st.button("🗑️ RESET"):
         st.session_state.clear()
         st.rerun()
     
-    st.divider()
-    b_carr = st.number_input("Budget Carrozzeria (€)", value=386393.0)
-    b_mecc = st.number_input("Budget Meccanica (€)", value=120000.0)
+    bc = st.number_input("Bud. Carr", 386393.0)
+    bm = st.number_input("Bud. Mecc", 120000.0)
 
-# --- 4. FUNZIONE TABELLA ANALISI ---
-def mostra_analisi(settore, budget_annuale, voci):
+# --- ANALISI ---
+def mostra_tab(sett, budget, voci):
     st.divider()
-    st.subheader(f"📊 Analisi Delta e Totali - {settore}")
+    res = []
+    t_tar = 0.0
+    t_con = 0.0
     
-    dati_tabella = []
-    tot_target = 0.0
-    tot_consuntivo = 0.0
+    for mese in M:
+        # Codice spezzato per evitare tagli
+        d = st.session_state['pct']
+        q = d.get(mese, 8.33)
+        tar = (budget * q) / 100
+        
+        con = 0.0
+        for v in voci:
+            for pt in P:
+                con += st.session_state['db'][sett][mese][v][pt]
+        
+        res.append({
+            "Mese": mese,
+            "Target": tar,
+            "Cons": con,
+            "Delta": tar - con
+        })
+        t_tar += tar
+        t_con += con
+
+    df = pd.DataFrame(res)
+    tot = pd.DataFrame([{
+        "Mese": "TOTALE",
+        "Target": t_tar,
+        "Cons": t_con,
+        "Delta": t_tar - t_con
+    }])
     
-    for m in MESI:
-        # Calcolo Target basato sulla % (qui fissa a 8.33% o personalizzabile)
-        quota_mese = st.session_state['pct
+    df_f = pd.concat([df, tot], ignore_index=True)
+    df_f = df_f.set_index("Mese")
+    
+    st.write(f"### Report {sett}")
+    st.table(df_f.style.format(precision=2))
+
+# --- MAIN ---
+st.title("🛡️ Unipolservice Budget")
+
+t1, t2 = st.tabs(["🚗 CARR", "🔧 MECC"])
+
+def inputs(s, voci):
+    for v in voci:
+        with st.exp
