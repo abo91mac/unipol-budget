@@ -107,4 +107,45 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
     st.divider()
     st.subheader("📝 Inserimento")
     
-    # Intestazione
+    # Intestazione Tabella
+    header = st.columns([2, 1] + [1]*12)
+    header[0].write("**Attività**"); header[1].write("**Partner**")
+    for i, m in enumerate(MESI): header[i+2].write(f"**{m[:3]}**")
+
+    # Righe di inserimento
+    for v in voci:
+        for p in PARTNER:
+            r_cols = st.columns([2, 1] + [1]*12)
+            r_cols[0].write(v)
+            r_cols[1].write(p)
+            for i, m in enumerate(MESI):
+                k = f"in_{settore}_{v}_{p}_{m}"
+                val_attuale = st.session_state['db'][settore][m][v][p]
+                st.session_state['db'][settore][m][v][p] = r_cols[i+2].number_input("€", value=val_attuale, key=k, label_visibility="collapsed")
+
+    # --- ANALISI DELTA (CORREZIONE ORDINE MESI) ---
+    st.divider()
+    st.subheader("📊 Analisi Delta")
+    rep = []
+    for m in MESI:
+        tar = (budget_totale * st.session_state[pct_key][m]) / 100
+        cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
+        rep.append({"Mese": m, "Target (€)": tar, "Consuntivo (€)": cons, "Delta (€)": tar - cons})
+    
+    df_rep = pd.DataFrame(rep)
+    # Forza l'ordine cronologico usando MESI come categoria
+    df_rep['Mese'] = pd.Categorical(df_rep['Mese'], categories=MESI, ordered=True)
+    df_rep = df_rep.sort_values('Mese').set_index("Mese")
+    
+    st.bar_chart(df_rep[["Target (€)", "Consuntivo (€)"]], color=["#003399", "#ff4b4b"])
+    
+    # Tabella formattata
+    st.table(df_rep.style.format(precision=2).applymap(
+        lambda x: 'color: red' if x < 0 else 'color: green', subset=['Delta (€)']
+    ))
+
+# --- 8. MAIN ---
+st.title("🛡️ Unipolservice Budget HUB")
+t_carr, t_mecc = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
+with t_carr: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
+with t_mecc: render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
