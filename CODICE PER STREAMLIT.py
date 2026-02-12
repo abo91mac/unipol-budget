@@ -12,31 +12,25 @@ VC = ["Gestione Contatti", "Ricontatto", "Documenti", "Firme Digitali", "Solleci
 VM = ["Solleciti Officine", "Ticket assistenza"]
 
 # --- 2. INIT ---
-def r_db():
-    d = {}
+if 'db' not in st.session_state:
+    db = {}
     for sk in ["C", "M"]:
-        d[sk] = {}
+        db[sk] = {}
         voci = VC if sk == "C" else VM
         for m in M:
-            d[sk][m] = {v: {p: 0.0 for p in P} for v in voci}
-    st.session_state['db'] = d
+            db[sk][m] = {v: {p: 0.0 for p in P} for v in voci}
+    st.session_state['db'] = db
     st.session_state['pct'] = {m: 8.33 for m in M}
-    st.session_state['v'] = "12.0"
-
-if 'v' not in st.session_state:
-    r_db()
 
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("Pannello")
     
-    # Gestione Percentuali (Ripristinata)
-    with st.expander(" % Budget Mensile"):
+    # Gestione Percentuali (Richiesta)
+    with st.expander("% Budget Mensile"):
         for m in M:
             v_pct = st.session_state['pct'].get(m, 8.33)
-            st.session_state['pct'][m] = st.number_input(
-                m, value=v_pct, step=0.01, key=f"pct_{m}"
-            )
+            st.session_state['pct'][m] = st.number_input(m, value=v_pct, step=0.01)
     
     st.divider()
     u = st.file_uploader("Carica Excel", type="xlsx")
@@ -58,4 +52,53 @@ with st.sidebar:
                                     if p_real in p_f:
                                         for m in M:
                                             if m in df.columns:
-                                                val = float(row)
+                                                st.session_state['db'][sk][m][v_real][p_real] = float(row[m])
+            st.success("Dati caricati")
+        except Exception as e:
+            st.error("Errore Excel")
+
+    if st.button("RESET"):
+        st.session_state.clear()
+        st.rerun()
+    
+    bc = st.number_input("Bud. Carr.", 386393.0)
+    bm = st.number_input("Bud. Mecc.", 120000.0)
+
+# --- 4. REPORT TABELLA ---
+def rep(s, b, voci):
+    st.write("---")
+    st.subheader("📊 Riepilogo Mensile e Totale")
+    dat = []
+    for m in M:
+        tr = (b * st.session_state['pct'].get(m, 8.33)) / 100
+        cn = sum(st.session_state['db'][s][m][v][p] for v in voci for p in P)
+        dat.append({"Mese": m, "Target": tr, "Cons": cn, "Delta": tr-cn})
+    
+    df = pd.DataFrame(dat)
+    t_tar = df['Target'].sum()
+    t_con = df['Cons'].sum()
+    tot = pd.DataFrame([{"Mese": "TOTALE", "Target": t_tar, "Cons": t_con, "Delta": t_tar-t_con}])
+    df_f = pd.concat([df, tot], ignore_index=True).set_index("Mese")
+    st.table(df_f.style.format(precision=2))
+
+# --- 5. UI ---
+st.title("🛡️ Unipol Budget HUB")
+t1, t2 = st.tabs(["CARROZZERIA", "MECCANICA"])
+
+def UI(s, voci, bud):
+    for v in voci:
+        with st.expander(v):
+            for pt in P:
+                st.write(pt)
+                cols = st.columns(6)
+                for i, m in enumerate(M):
+                    val = st.session_state['db'][s][m][v][pt]
+                    k = f"{s}_{v[0]}_{pt[0]}_{m}"
+                    nv = cols[i%6].number_input(m[:3], value=float(val), key=k)
+                    st.session_state['db'][s][m][v][pt] = nv
+    rep(s, bud, voci)
+
+with t1:
+    UI("C", VC, bc)
+with t2:
+    UI("M", VM, bm)
