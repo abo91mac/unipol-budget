@@ -2,59 +2,97 @@ import streamlit as st
 import pandas as pd
 import io
 
-# --- 1. SETUP ---
-st.set_page_config(layout="wide")
-
+# --- 1. DEFINIZIONI STRINGHE CORTE ---
+T = "Unipol Budget"
+OK = "Caricato"
+ERR = "Errore"
 M = ["GENNAIO", "FEBBRAIO", "MARZO", "APRILE", "MAGGIO", "GIUGNO", 
      "LUGLIO", "AGOSTO", "SETTEMBRE", "OTTOBRE", "NOVEMBRE", "DICEMBRE"]
 P = ["KONECTA", "COVISIAN"]
 VC = ["Contatti", "Ricontatto", "Doc", "Firme", "Soll"]
 VM = ["Soll Off", "Ticket"]
 
-# --- 2. FUNZIONE RESET (SICURA) ---
-def reset_db():
-    db = {}
+# --- 2. SETUP ---
+st.set_page_config(layout="wide")
+
+# --- 3. INIT SICURO ---
+def r_db():
+    d = {}
     for s in ["C", "M"]:
-        db[s] = {}
-        voci = VC if s == "C" else VM
-        for mese in M:
-            db[s][mese] = {v: {pt: 0.0 for pt in P} for v in voci}
-    st.session_state['db'] = db
+        d[s] = {}
+        v = VC if s == "C" else VM
+        for m in M:
+            d[s][m] = {i: {j: 0.0 for j in P} for i in v}
+    st.session_state['db'] = d
     st.session_state['pct'] = {mese: 8.33 for mese in M}
-    st.session_state['ver'] = "4.0"
+    st.session_state['v'] = "5.0"
 
-# Se la versione non coincide o il db manca, resetta
-if 'ver' not in st.session_state or st.session_state['ver'] != "4.0":
-    reset_db()
+if 'v' not in st.session_state:
+    r_db()
 
-# --- 3. EXCEL LOGIC ---
-def esporta():
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine='xlsxwriter') as wr:
-        for s_k, s_n in [("C", "Carrozzeria"), ("M", "Meccanica")]:
-            voci = VC if s_k == "C" else VM
-            rows = []
-            for v in voci:
-                for pt in P:
-                    r = {"Attività": v, "Partner": pt}
-                    for mese in M:
-                        r[mese] = st.session_state['db'][s_k][mese][v][pt]
-                    rows.append(r)
-            pd.DataFrame(rows).to_excel(wr, sheet_name=s_n, index=False)
-    return out.getvalue()
-
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR & EXCEL ---
 with st.sidebar:
     st.title("Pannello")
-    up = st.file_uploader("Carica Excel", type="xlsx")
-    if up:
-        xls = pd.ExcelFile(up)
-        for s_k, s_n in [("C", "Carrozzeria"), ("M", "Meccanica")]:
-            if s_n in xls.sheet_names:
-                df = pd.read_excel(xls, sheet_name=s_n)
-                for _, row in df.iterrows():
-                    v_n, p_n = str(row['Attività']), str(row['Partner'])
-                    for mese in M:
-                        if mese in df.columns and v_n in st.session_state['db'][s_k][mese]:
-                            st.session_state['db'][s_k][mese][v_n][p_n] = float(row[mese])
-        st.success("✅ Car
+    u = st.file_uploader("Excel", type="xlsx")
+    if u:
+        try:
+            x = pd.ExcelFile(u)
+            for sk, sn in [("C", "Carrozzeria"), ("M", "Meccanica")]:
+                if sn in x.sheet_names:
+                    df = pd.read_excel(x, sheet_name=sn)
+                    for _, row in df.iterrows():
+                        vn, pn = str(row['Attività']), str(row['Partner'])
+                        for mese in M:
+                            if mese in df.columns:
+                                val = float(row[mese])
+                                st.session_state['db'][sk][mese][vn][pn] = val
+            st.success(OK)
+        except:
+            st.error(ERR)
+
+    if st.button("RESET"):
+        r_db()
+        st.rerun()
+    
+    bc = st.number_input("Bud. C", 386393.0)
+    bm = st.number_input("Bud. M", 120000.0)
+
+# --- 5. REPORT ---
+def rep(s, b, voci):
+    st.write("---")
+    st.subheader("Report Mensile")
+    dat = []
+    tt, tc = 0.0, 0.0
+    for m in M:
+        q = st.session_state['pct'].get(m, 8.33)
+        tr = (b * q) / 100
+        cn = sum(st.session_state['db'][s][m][v][pt] for v in voci for pt in P)
+        dat.append({"Mese": m, "Target": tr, "Cons": cn, "Delta": tr-cn})
+        tt, tc = tt+tr, tc+cn
+    
+    df = pd.DataFrame(dat)
+    tot = pd.DataFrame([{"Mese": "TOTALE", "Target": tt, "Cons": tc, "Delta": tt-tc}])
+    df_f = pd.concat([df, tot], ignore_index=True).set_index("Mese")
+    st.table(df_f.style.format(precision=2))
+
+# --- 6. UI ---
+st.title(T)
+t1, t2 = st.tabs(["CARR", "MECC"])
+
+def UI(s, voci, bud):
+    for v in voci:
+        with st.expander(v):
+            for pt in P:
+                st.write(pt)
+                c = st.columns(6)
+                for i, m in enumerate(M):
+                    db_v = st.session_state['db'][s][m][v][pt]
+                    k = f"{s}{v[0]}{pt[0]}{m[:2]}"
+                    nv = c[i%6].number_input(m[:3], value=db_v, key=k)
+                    st.session_state['db'][s][m][v][pt] = nv
+    rep(s, bud, voci)
+
+with t1:
+    UI("C", VC, bc)
+with t2:
+    UI("M", VM, bm)
