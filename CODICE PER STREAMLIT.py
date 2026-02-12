@@ -2,19 +2,16 @@ import streamlit as st
 import pandas as pd
 import io
 import os
-from PIL import Image
 
 # --- 1. CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Unipolservice Budget HUB", layout="wide")
 
-# Tema grafico Blu Unipol
 st.markdown("""
     <style>
     .stApp { background-color: #f4f7f9; }
     .stTabs [aria-selected="true"] { background-color: #003399 !important; color: white !important; }
     .stButton>button { background-color: #003399; color: white; border-radius: 5px; width: 100%; }
     div[data-testid="stMetricValue"] { color: #003399; }
-    /* Stile speciale per il tasto reset */
     div.stButton > button:first-child[data-testid="reset_button"] {
         background-color: #ff4b4b;
         border-color: #ff4b4b;
@@ -34,13 +31,13 @@ def reset_dati():
     st.session_state['db'] = {s: {m: {v: {p: 0.0 for p in PARTNER} for v in (VOCI_CARR if s=="Carrozzeria" else VOCI_MECC)} for m in MESI} for s in ["Carrozzeria", "Meccanica"]}
     st.session_state['pct_carr'] = {m: 8.33 for m in MESI}
     st.session_state['pct_mecc'] = {m: 8.33 for m in MESI}
-    st.toast("🧹 Tutti i dati sono stati azzerati!")
+    st.toast("🧹 Dati resettati")
 
-# --- 4. INIZIALIZZAZIONE SESSION STATE ---
+# --- 4. INIZIALIZZAZIONE ---
 if 'db' not in st.session_state:
     reset_dati()
 
-# --- 5. FUNZIONI LOGICA EXCEL ---
+# --- 5. LOGICA EXCEL ---
 def crea_template():
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -80,53 +77,35 @@ def carica_excel():
                         for m in MESI:
                             if m in df.columns:
                                 st.session_state['db'][sett][m][v][p] = float(row[m])
-            st.toast("✅ Excel caricato con successo!")
+            st.toast("✅ Excel caricato!")
+            st.rerun() # FORZA L'AGGIORNAMENTO DELLA PAGINA
         except Exception as e:
-            st.error(f"Errore nel caricamento: {e}")
+            st.error(f"Errore: {e}")
 
 # --- 6. SIDEBAR ---
 with st.sidebar:
-    if os.path.exists('logo.png'):
-        st.image('logo.png')
-    else:
-        st.title("🛡️ Unipolservice")
+    st.title("🛡️ Unipolservice")
+    st.download_button("📥 Scarica Template", data=crea_template(), file_name="Template.xlsx")
+    st.download_button("📤 Esporta Dati", data=esporta_consolidato(), file_name="Export.xlsx")
+    st.file_uploader("📂 Carica Excel", type="xlsx", key="uploader", on_change=carica_excel)
     
-    st.divider()
-    st.subheader("📥 Download")
-    st.download_button("Scarica Template", data=crea_template(), file_name="Template_Budget.xlsx")
-    st.download_button("Esporta Consolidato", data=esporta_consolidato(), file_name="Budget_Consolidato.xlsx")
-    
-    st.divider()
-    st.subheader("📂 Upload")
-    st.file_uploader("Carica Excel compilato", type="xlsx", key="uploader", on_change=carica_excel)
-    
-    # TASTO RESET
-    st.divider()
-    if st.button("🗑️ RESET TUTTI I DATI", help="Cancella tutti i numeri inseriti e ricarica le impostazioni iniziali"):
+    if st.button("🗑️ RESET TUTTI I DATI"):
         reset_dati()
         st.rerun()
 
     st.divider()
-    st.subheader("💰 Budget Annuale")
-    b_carr = st.number_input("Carrozzeria (€)", value=386393.0, step=1000.0)
-    b_mecc = st.number_input("Meccanica (€)", value=120000.0, step=1000.0)
+    b_carr = st.number_input("Budget Carrozzeria (€)", value=386393.0)
+    b_mecc = st.number_input("Budget Meccanica (€)", value=120000.0)
 
-# --- 7. FUNZIONE RENDER DASHBOARD ---
+# --- 7. DASHBOARD ---
 def render_dashboard(settore, budget_totale, voci, pct_key):
-    # Expander per le percentuali
-    with st.expander(f"📅 Configura Distribuzione Mensile % ({settore})"):
+    with st.expander(f"📅 Distribuzione % {settore}"):
         cols_pct = st.columns(6)
         for i, m in enumerate(MESI):
             st.session_state[pct_key][m] = cols_pct[i%6].number_input(f"{m} %", 0.0, 100.0, st.session_state[pct_key][m], key=f"pct_{settore}_{m}")
-        
-        tot_pct = sum(st.session_state[pct_key].values())
-        if abs(tot_pct - 100) > 0.1:
-            st.warning(f"Somma attuale: {tot_pct:.2f}% (Deve essere 100%)")
     
     st.divider()
-    
-    # Tabella di inserimento dati
-    st.subheader("📝 Inserimento Consuntivi")
+    st.subheader("📝 Inserimento")
     header = st.columns([2, 1] + [1]*12)
     header[0].write("**Attività**"); header[1].write("**Partner**")
     for i, m in enumerate(MESI): header[i+2].write(f"**{m[:3]}**")
@@ -140,7 +119,7 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
                 k = f"in_{settore}_{v}_{p}_{m}"
                 st.session_state['db'][settore][m][v][p] = r_cols[i+2].number_input("€", value=st.session_state['db'][settore][m][v][p], key=k, label_visibility="collapsed")
 
-    # Analisi Budget
+    # --- ANALISI DELTA CON ORDINE MESI CORRETTO ---
     st.divider()
     st.subheader("📊 Analisi Delta")
     rep = []
@@ -149,20 +128,16 @@ def render_dashboard(settore, budget_totale, voci, pct_key):
         cons = sum(st.session_state['db'][settore][m][v][p] for v in voci for p in PARTNER)
         rep.append({"Mese": m, "Target (€)": tar, "Consuntivo (€)": cons, "Delta (€)": tar - cons})
     
-    df_rep = pd.DataFrame(rep).set_index("Mese")
+    df_rep = pd.DataFrame(rep)
+    # FORZIAMO L'ORDINE CRONOLOGICO
+    df_rep['Mese'] = pd.Categorical(df_rep['Mese'], categories=MESI, ordered=True)
+    df_rep = df_rep.sort_values('Mese').set_index("Mese")
     
-    # Grafico
     st.bar_chart(df_rep[["Target (€)", "Consuntivo (€)"]], color=["#003399", "#ff4b4b"])
-    
-    # Tabella riassuntiva con colori
     st.table(df_rep.style.format(precision=2).applymap(lambda x: 'color: red' if x < 0 else 'color: green', subset=['Delta (€)']))
 
 # --- 8. MAIN ---
 st.title("🛡️ Unipolservice Budget HUB 2.0")
 t_carr, t_mecc = st.tabs(["🚗 CARROZZERIA", "🔧 MECCANICA"])
-
-with t_carr:
-    render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
-
-with t_mecc:
-    render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
+with t_carr: render_dashboard("Carrozzeria", b_carr, VOCI_CARR, 'pct_carr')
+with t_mecc: render_dashboard("Meccanica", b_mecc, VOCI_MECC, 'pct_mecc')
