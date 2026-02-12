@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import io
 
-# --- 1. DEFINIZIONI STRINGHE CORTE ---
+# --- 1. DEFINIZIONI ---
 T = "Unipol Budget"
 OK = "Caricato"
 ERR = "Errore"
@@ -15,7 +15,7 @@ VM = ["Soll Off", "Ticket"]
 # --- 2. SETUP ---
 st.set_page_config(layout="wide")
 
-# --- 3. INIT SICURO ---
+# --- 3. INIT ---
 def r_db():
     d = {}
     for s in ["C", "M"]:
@@ -25,12 +25,12 @@ def r_db():
             d[s][m] = {i: {j: 0.0 for j in P} for i in v}
     st.session_state['db'] = d
     st.session_state['pct'] = {mese: 8.33 for mese in M}
-    st.session_state['v'] = "5.0"
+    st.session_state['v'] = "6.0"
 
 if 'v' not in st.session_state:
     r_db()
 
-# --- 4. SIDEBAR & EXCEL ---
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.title("Pannello")
     u = st.file_uploader("Excel", type="xlsx")
@@ -87,8 +87,13 @@ def UI(s, voci, bud):
                 c = st.columns(6)
                 for i, m in enumerate(M):
                     db_v = st.session_state['db'][s][m][v][pt]
-                    k = f"{s}{v[0]}{pt[0]}{m[:2]}"
-                    nv = c[i%6].number_input(m[:3], value=db_v, key=k)
+                    # CHIAVE UNICA GENERATA CON NOMI COMPLETI
+                    k = f"key_{s}_{v}_{pt}_{m}"
+                    nv = c[i%6].number_input(
+                        m[:3], 
+                        value=db_v, 
+                        key=k
+                    )
                     st.session_state['db'][s][m][v][pt] = nv
     rep(s, bud, voci)
 
