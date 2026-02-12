@@ -2,18 +2,18 @@ import streamlit as st
 import pandas as pd
 import io
 
-# --- SETUP ---
+# --- 1. SETUP ---
 st.set_page_config(layout="wide")
 
-# Liste brevi
+# Liste costanti
 M = ["GEN", "FEB", "MAR", "APR", "MAG", "GIU", 
      "LUG", "AGO", "SET", "OTT", "NOV", "DIC"]
 P = ["KON", "COV"]
 VC = ["Contatti", "Ricont", "Doc", "Firme", "Soll"]
 VM = ["SollOff", "Ticket"]
 
-# --- INIT ---
-if 'db' not in st.session_state:
+# --- 2. INIT SICURO (Previene KeyError) ---
+def init_data():
     d = {}
     for s in ["C", "M"]:
         d[s] = {}
@@ -22,28 +22,32 @@ if 'db' not in st.session_state:
             d[s][m] = {}
             for v in voci:
                 d[s][m][v] = {pt: 0.0 for pt in P}
-    st.session_state['db'] = d
+    return d
+
+# Se il db non esiste o ha un formato vecchio, resettalo
+if 'db' not in st.session_state or 'C' not in st.session_state['db']:
+    st.session_state['db'] = init_data()
 
 if 'pct' not in st.session_state:
     st.session_state['pct'] = {mese: 8.33 for mese in M}
 
-# --- SIDEBAR ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("Pannello")
-    if st.button("RESET"):
-        st.session_state.clear()
+    if st.button("RESET TOTALE"):
+        st.session_state['db'] = init_data()
         st.rerun()
     
     bc = st.number_input("Bud.C", 386393.0)
     bm = st.number_input("Bud.M", 120000.0)
 
-# --- TABELLA ---
+# --- 4. FUNZIONE TABELLA ---
 def tab(s, b, v_list):
     st.write("---")
     st.write("### REPORT FINALE")
     res = []
-    t_t = 0.0
-    t_c = 0.0
+    t_t, t_c = 0.0, 0.0
+    
     for m in M:
         q = st.session_state['pct'].get(m, 8.33)
         tr = (b * q) / 100
@@ -60,28 +64,28 @@ def tab(s, b, v_list):
     df_f = pd.concat([df, tot], ignore_index=True)
     st.table(df_f.set_index("Mese").style.format(precision=2))
 
-# --- MAIN ---
+# --- 5. INTERFACCIA ---
 st.title("Unipol Budget")
 t1, t2 = st.tabs(["CARR", "MECC"])
 
 def UI(s, voci):
     for v in voci:
-        st.markdown(f"**{v}**")
+        st.markdown(f"**Attività: {v}**")
         for pt in P:
             st.text(f"Partner: {pt}")
             c = st.columns(6)
             for i, mese in enumerate(M):
+                # Lettura sicura
                 val = st.session_state['db'][s][mese][v][pt]
-                k = f"{s}{v[0]}{pt[0]}{mese}"
-                # Input spezzato su piu righe
+                k = f"{s}_{v[:2]}_{pt[:2]}_{mese}"
                 nv = c[i%6].number_input(
                     mese, 
                     value=val, 
                     key=k,
-                    label_visibility="collapsed"
+                    label_visibility="visible" # Visibile per debug
                 )
                 st.session_state['db'][s][mese][v][pt] = nv
-    tab(s, bc, voci)
+    tab(s, (bc if s=="C" else bm), voci)
 
 with t1:
     UI("C", VC)
