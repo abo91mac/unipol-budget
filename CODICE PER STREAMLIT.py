@@ -26,11 +26,10 @@ if 'db' not in st.session_state:
 with st.sidebar:
     st.title("Pannello")
     
-    # Gestione Percentuali (Richiesta)
     with st.expander("% Budget Mensile"):
         for m in M:
             v_pct = st.session_state['pct'].get(m, 8.33)
-            st.session_state['pct'][m] = st.number_input(m, value=v_pct, step=0.01)
+            st.session_state['pct'][m] = st.number_input(m, value=v_pct, key=f"p_{m}")
     
     st.divider()
     u = st.file_uploader("Carica Excel", type="xlsx")
@@ -38,24 +37,34 @@ with st.sidebar:
     if u:
         try:
             x = pd.ExcelFile(u)
+            contatore = 0
             for sk, sn in [("C", "Carrozzeria"), ("M", "Meccanica")]:
                 if sn in x.sheet_names:
                     df = pd.read_excel(x, sheet_name=sn)
+                    # Pulizia colonne: tutto in maiuscolo senza spazi
                     df.columns = [str(c).strip().upper() for c in df.columns]
+                    
                     for _, row in df.iterrows():
-                        v_f = str(row.get('ATTIVITÀ', row.get('ATTIVITA', ''))).strip().upper()
-                        p_f = str(row.get('PARTNER', '')).strip().upper()
-                        v_target = VC if sk == "C" else VM
-                        for v_real in v_target:
-                            if v_real.strip().upper() in v_f:
+                        # Legge Attività e Partner ignorando maiuscole/minuscole
+                        v_file = str(row.get('ATTIVITÀ', row.get('ATTIVITA', ''))).strip().upper()
+                        p_file = str(row.get('PARTNER', '')).strip().upper()
+                        
+                        v_list = VC if sk == "C" else VM
+                        for v_real in v_list:
+                            if v_real.upper() in v_file:
                                 for p_real in P:
-                                    if p_real in p_f:
+                                    if p_real.upper() in p_file:
                                         for m in M:
                                             if m in df.columns:
-                                                st.session_state['db'][sk][m][v_real][p_real] = float(row[m])
-            st.success("Dati caricati")
+                                                valore = float(row[m])
+                                                st.session_state['db'][sk][m][v_real][p_real] = valore
+                                                contatore += 1
+            if contatore > 0:
+                st.success(f"Aggiornati {contatore} valori!")
+            else:
+                st.warning("File letto, ma nessuna attività corrispondente trovata.")
         except Exception as e:
-            st.error("Errore Excel")
+            st.error(f"Errore tecnico: {e}")
 
     if st.button("RESET"):
         st.session_state.clear()
@@ -64,7 +73,7 @@ with st.sidebar:
     bc = st.number_input("Bud. Carr.", 386393.0)
     bm = st.number_input("Bud. Mecc.", 120000.0)
 
-# --- 4. REPORT TABELLA ---
+# --- 4. REPORT ---
 def rep(s, b, voci):
     st.write("---")
     st.subheader("📊 Riepilogo Mensile e Totale")
@@ -82,18 +91,19 @@ def rep(s, b, voci):
     st.table(df_f.style.format(precision=2))
 
 # --- 5. UI ---
-st.title("🛡️ Unipol Budget HUB")
+st.title("🛡️ Unipol Budget Hub")
 t1, t2 = st.tabs(["CARROZZERIA", "MECCANICA"])
 
 def UI(s, voci, bud):
     for v in voci:
         with st.expander(v):
             for pt in P:
-                st.write(pt)
+                st.write(f"**{pt}**")
                 cols = st.columns(6)
                 for i, m in enumerate(M):
                     val = st.session_state['db'][s][m][v][pt]
-                    k = f"{s}_{v[0]}_{pt[0]}_{m}"
+                    # Chiave univoca per evitare errori
+                    k = f"key_{s}_{v}_{pt}_{m}"
                     nv = cols[i%6].number_input(m[:3], value=float(val), key=k)
                     st.session_state['db'][s][m][v][pt] = nv
     rep(s, bud, voci)
