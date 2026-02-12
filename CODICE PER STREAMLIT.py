@@ -16,9 +16,9 @@ if 'db' not in st.session_state:
     db = {}
     for sk in ["C", "M"]:
         db[sk] = {}
-        voci = VC if sk == "C" else VM
+        v_list = VC if sk == "C" else VM
         for m in M:
-            db[sk][m] = {v: {p: 0.0 for p in P} for v in voci}
+            db[sk][m] = {v: {p: 0.0 for p in P} for v in v_list}
     st.session_state['db'] = db
     st.session_state['pct'] = {m: 8.33 for m in M}
 
@@ -42,7 +42,6 @@ def genera_export():
 with st.sidebar:
     st.title("🛡️ Pannello")
     
-    # PULSANTE EXPORT AGGIUNTO QUI
     st.download_button(
         label="📥 Scarica Export Consolidato",
         data=genera_export(),
@@ -64,9 +63,8 @@ with st.sidebar:
         try:
             x = pd.ExcelFile(u)
             contatore = 0
-            # RIGHE CORTE PER EVITARE SYNTAX ERROR
-            S_MAP = [("C", "Carrozzeria"), 
-                     ("M", "Meccanica")]
+            # Struttura dati per il ciclo di caricamento
+            S_MAP = [("C", "Carrozzeria"), ("M", "Meccanica")]
             for sk, sn in S_MAP:
                 if sn in x.sheet_names:
                     df = pd.read_excel(x, sheet_name=sn)
@@ -81,7 +79,8 @@ with st.sidebar:
                                     if p_real.upper() in p_f:
                                         for m in M:
                                             if m in df.columns:
-                                                st.session_state['db'][sk][m][v_real][p_real] = float(row[m])
+                                                val = float(row[m])
+                                                st.session_state['db'][sk][m][v_real][p_real] = val
                                                 contatore += 1
             st.success(f"Aggiornati {contatore} valori!")
         except Exception as e:
@@ -91,8 +90,8 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
     
-    bc = st.number_input("Bud. Carr.", 386393.0)
-    bm = st.number_input("Bud. Mecc.", 120000.0)
+    bc = st.number_input("Budget Carrozzeria", 386393.0)
+    bm = st.number_input("Budget Meccanica", 120000.0)
 
 # --- 5. REPORT ---
 def rep(s, b, voci):
@@ -130,3 +129,5 @@ def UI(s, voci, bud):
 
 with t1:
     UI("C", VC, bc)
+with t2:
+    UI("M", VM, bm)
